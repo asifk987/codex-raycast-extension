@@ -8,11 +8,11 @@
 /* eslint-disable @typescript-eslint/ban-types */
 
 type ExtensionPreferences = {
-  /** Default Project Directory - Optional existing local workspace directory to use when starting new Codex threads. */
+  /** Default Working Directory - Default directory for all new threads. */
   "defaultProjectDirectory"?: string,
-  /** Projects Folder - Optional parent folder to offer project choices when starting a Codex thread with a prompt. */
+  /** Working Directory Root - Parent folder whose subfolders appear as working directory choices. */
   "projectsDirectory"?: string,
-  /** Codex CLI Path - Optional absolute path to the Codex CLI. Leave empty to auto-detect. */
+  /** Codex CLI Path - Optional absolute path to the Codex CLI. Leave blank for auto-discovery. */
   "codexCliPath"?: string
 }
 
