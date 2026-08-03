@@ -38,8 +38,13 @@ import {
   unarchiveThread,
 } from "./utils/app-server";
 import {
+  featureBranchColor,
+  getBranchAccessory,
   getCodexSourceDescriptor,
   getCodexStatusDescriptor,
+  getStatusAccessory,
+  getThreadIcon,
+  mainBranchColor,
 } from "./utils/display";
 import {
   mapNativeThreadSearchResults,
@@ -59,6 +64,7 @@ import {
 } from "./utils/rename";
 import { exportThreadToMarkdown } from "./utils/export";
 import {
+  formatCount,
   formatTimestampSeconds,
   getErrorMessage,
   getProjectName,
@@ -74,8 +80,9 @@ import {
 import { buildWorkingDirectoryOptionsFromThreads } from "./utils/projects";
 import { cleanCodexUserMessage } from "./utils/message-cleaning";
 import { removeLegacyThreadSearchCache } from "./utils/legacy-thread-search-cache";
-import { runNoViewCommand } from "./utils/raycast";
+import { runNoViewActionWithFailureToast } from "./utils/raycast";
 import { openTerminalAtPathWithCommand } from "./utils/terminal";
+import { buildCodexThreadUrl, openCodexThread } from "./utils/launch";
 
 type ThreadScope = "active" | "archived";
 type WorkingDirectoryFilter = {
@@ -106,8 +113,6 @@ const latestTurnPresentation = {
 } as const;
 
 const subagentColor = "#94D2BC";
-const mainBranchColor = "#4A78A4";
-const featureBranchColor = "#FF7F7F";
 const autoRenameBatchSizes = [5, 10, 25, 50] as const;
 const latestTurnPreviewMaxLength = 1500;
 const allProjectsFilterValue = "__all_projects__";
@@ -635,7 +640,11 @@ function ThreadActions({
           await openThreadInCodexApp(thread);
         }}
       />
-      <Action.ShowInFinder title="Show Directory in Finder" path={thread.cwd} />
+      <Action.ShowInFinder
+        title="Reveal Working Directory in Finder"
+        path={thread.cwd}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "o" }}
+      />
       <Action
         title="Resume in Terminal"
         icon={Icon.Terminal}
@@ -681,6 +690,14 @@ function ThreadActions({
               onRenameSuccess={onThreadsChanged}
             />
           }
+        />
+        <Action
+          title="Auto Rename"
+          icon={Icon.Wand}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
+          onAction={async () => {
+            await autoRenameThread(thread, archived, onThreadsChanged);
+          }}
         />
         <Action.Push
           title="Summarize"
@@ -784,11 +801,11 @@ function ThreadActions({
             }}
           />
         )}
-        <ActionPanel.Submenu title="Bulk Rename" icon={Icon.TextCursor}>
+        <ActionPanel.Submenu title="Bulk Auto Rename" icon={Icon.TextCursor}>
           {autoRenameBatchSizes.map((batchSize) => (
             <Action
               key={batchSize}
-              title={`Rename Latest ${batchSize} Visible Threads`}
+              title={`Auto Rename Latest ${batchSize} Visible Tasks`}
               icon={Icon.Text}
               onAction={async () => {
                 await autoRenameVisibleThreads(
@@ -811,7 +828,7 @@ function ThreadActions({
         />
         <Action.CopyToClipboard
           title="Copy Thread Deeplink"
-          content={buildThreadDeeplink(thread)}
+          content={buildCodexThreadUrl(thread.id)}
           shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
         />
         <Action.CopyToClipboard
@@ -1067,6 +1084,51 @@ async function renameThreadWithFeedback(
   }
 }
 
+async function autoRenameThread(
+  thread: CodexThread,
+  archived: boolean,
+  onThreadsChanged: () => Promise<unknown> | void,
+) {
+  const toast = await showToast({
+    style: Toast.Style.Animated,
+    title: "Auto Renaming Task",
+    message: truncate(getThreadDisplayTitle(thread), 110),
+  });
+  const [result] = await autoRenameCodexThreads({
+    archived,
+    threads: [thread],
+  });
+
+  if (!result || result.status === "failed") {
+    toast.style = Toast.Style.Failure;
+    toast.title = "Auto Rename Failed";
+    toast.message = result?.error ?? "The task could not be renamed.";
+    return;
+  }
+
+  if (result.status === "skipped") {
+    toast.style = Toast.Style.Success;
+    toast.title = "Task Name Unchanged";
+    toast.message = truncate(result.previousTitle, 110);
+    return;
+  }
+
+  try {
+    await onThreadsChanged();
+  } catch (error) {
+    await showFailureToast(error, {
+      title: "Task renamed, unable to refresh tasks",
+    });
+  }
+
+  toast.style = Toast.Style.Success;
+  toast.title = "Task Renamed";
+  toast.message =
+    result.renameStrategy === "archivedFallback"
+      ? `Used archived fallback: ${truncate(result.nextTitle ?? result.previousTitle, 86)}`
+      : truncate(result.nextTitle ?? result.previousTitle, 110);
+}
+
 async function autoRenameVisibleThreads(
   candidates: CodexThread[],
   requestedCount: number,
@@ -1078,17 +1140,17 @@ async function autoRenameVisibleThreads(
   if (targets.length === 0) {
     await showToast({
       style: Toast.Style.Failure,
-      title: "No Visible Threads",
-      message: "There are no threads to rename in the current view.",
+      title: "No Visible Tasks",
+      message: "There are no tasks to rename in the current view.",
     });
     return;
   }
 
   const confirmed = await confirmAlert({
-    title: `Auto Rename ${targets.length} Threads?`,
+    title: `Auto Rename ${targets.length} Tasks?`,
     message: `Raycast AI will summarize and rename the latest ${targets.length} visible ${
       archived ? "archived" : "active"
-    } threads. Larger batches can take a while.`,
+    } tasks. Larger batches can take a while.`,
     primaryAction: {
       title: "Auto Rename",
     },
@@ -1100,7 +1162,7 @@ async function autoRenameVisibleThreads(
 
   const toast = await showToast({
     style: Toast.Style.Animated,
-    title: "Auto-renaming Threads",
+    title: "Auto Renaming Tasks",
     message: `0/${targets.length}`,
   });
   const results = await autoRenameCodexThreads({
@@ -1133,7 +1195,7 @@ async function autoRenameVisibleThreads(
       ? Toast.Style.Failure
       : Toast.Style.Success;
   toast.title =
-    failedCount > 0 ? "Auto Rename Finished with Errors" : "Threads Renamed";
+    failedCount > 0 ? "Auto Rename Finished with Errors" : "Tasks Renamed";
   toast.message = `Renamed ${renamedCount}, skipped ${skippedCount}, failed ${failedCount}`;
   toast.primaryAction = {
     title: "Copy Report",
@@ -1189,13 +1251,9 @@ async function openThreadInCodexApp(thread: CodexThread) {
   await runNoViewActionWithFailureToast(
     "Unable to open thread in Codex",
     async () => {
-      await open(buildThreadDeeplink(thread));
+      await openCodexThread(thread.id);
     },
   );
-}
-
-function buildThreadDeeplink(thread: CodexThread): string {
-  return `codex://threads/${thread.id}`;
 }
 
 async function copyLatestThreadTurn(
@@ -1233,17 +1291,6 @@ async function resumeThreadInTerminal(thread: CodexThread) {
       buildResumeCommand(thread.id),
     );
   });
-}
-
-async function runNoViewActionWithFailureToast(
-  failureTitle: string,
-  action: () => Promise<void>,
-) {
-  try {
-    await runNoViewCommand(action, { popToRoot: true });
-  } catch (error) {
-    await showFailureToast(error, { title: failureTitle });
-  }
 }
 
 async function runThreadMutation<T>(
@@ -1318,18 +1365,6 @@ async function performThreadMutation(opts: {
   );
 }
 
-function getThreadIcon(thread: CodexThread) {
-  const sourceDescriptor = getCodexSourceDescriptor(thread.source);
-  const statusDescriptor = getCodexStatusDescriptor(thread.status);
-
-  return {
-    source: sourceDescriptor.icon,
-    ...(statusDescriptor.label
-      ? { tintColor: statusDescriptor.tintColor }
-      : {}),
-  };
-}
-
 function getThreadAccessories(
   thread: CodexThread,
   directSubagentCount: number,
@@ -1351,10 +1386,10 @@ function getThreadAccessories(
     accessories.push({
       icon: Icon.Livestream,
       tag: {
-        value: formatSubagentCount(directSubagentCount),
+        value: formatCount(directSubagentCount, "subagent"),
         color: subagentColor,
       },
-      tooltip: `${formatSubagentCount(directSubagentCount)} spawned from this thread`,
+      tooltip: `${formatCount(directSubagentCount, "subagent")} spawned from this thread`,
     });
   }
 
@@ -1417,7 +1452,7 @@ function buildThreadDetail(
             ) : null}
             {directSubagentCount > 0 ? (
               <List.Item.Detail.Metadata.TagList.Item
-                text={`🧬 ${formatSubagentCount(directSubagentCount)}`}
+                text={`🧬 ${formatCount(directSubagentCount, "subagent")}`}
                 color={subagentColor}
               />
             ) : null}
@@ -1581,44 +1616,4 @@ function isThreadSpawnSubagent(thread: CodexThread): thread is CodexThread & {
     typeof thread.source.subAgent === "object" &&
     "thread_spawn" in thread.source.subAgent
   );
-}
-
-function formatSubagentCount(count: number): string {
-  return `${count} subagent${count === 1 ? "" : "s"}`;
-}
-
-function getStatusAccessory(
-  thread: CodexThread,
-): List.Item.Accessory | undefined {
-  const statusDescriptor = getCodexStatusDescriptor(thread.status);
-
-  if (!statusDescriptor.label || statusDescriptor.label === "Active") {
-    return undefined;
-  }
-
-  return {
-    tag: {
-      value: statusDescriptor.label,
-      color: statusDescriptor.tintColor,
-    },
-    tooltip: statusDescriptor.tooltip,
-  };
-}
-
-function getBranchAccessory(
-  thread: CodexThread,
-): List.Item.Accessory | undefined {
-  const branch = thread.gitInfo?.branch?.trim();
-  if (!branch) {
-    return undefined;
-  }
-
-  return {
-    icon: branch === "main" ? Icon.House : Icon.WrenchScrewdriver,
-    tag: {
-      value: branch,
-      color: branch === "main" ? mainBranchColor : featureBranchColor,
-    },
-    tooltip: `Git branch: ${branch}`,
-  };
 }

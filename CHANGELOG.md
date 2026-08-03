@@ -2,6 +2,7 @@
 
 ## [Modernized Thread Management] - {PR_MERGE_DATE}
 
+- Added Manage Codex Projects for browsing real local Projects, their folders, pinned order, and explicitly assigned threads.
 - Updated the Codex integration for the ChatGPT desktop app and current app-server behavior.
 - Replaced the local transcript index with native transcript search and structured thread reads.
 - Improved the thread search, details, fork, rename, summarize, archive, and export workflows.

@@ -22,6 +22,8 @@ declare type Preferences = ExtensionPreferences
 declare namespace Preferences {
   /** Preferences accessible in the `search-threads` command */
   export type SearchThreads = ExtensionPreferences & {}
+  /** Preferences accessible in the `manage-projects` command */
+  export type ManageProjects = ExtensionPreferences & {}
   /** Preferences accessible in the `new-thread` command */
   export type NewThread = ExtensionPreferences & {}
   /** Preferences accessible in the `new-thread-with-prompt` command */
@@ -35,6 +37,8 @@ declare namespace Preferences {
 declare namespace Arguments {
   /** Arguments passed to the `search-threads` command */
   export type SearchThreads = {}
+  /** Arguments passed to the `manage-projects` command */
+  export type ManageProjects = {}
   /** Arguments passed to the `new-thread` command */
   export type NewThread = {}
   /** Arguments passed to the `new-thread-with-prompt` command */

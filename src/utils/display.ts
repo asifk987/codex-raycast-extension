@@ -1,5 +1,12 @@
-import { Color, Icon } from "@raycast/api";
-import type { CodexThreadSource, CodexThreadStatus } from "./app-server";
+import { Color, Icon, List } from "@raycast/api";
+import type {
+  CodexThread,
+  CodexThreadSource,
+  CodexThreadStatus,
+} from "./app-server";
+
+export const mainBranchColor = "#4A78A4";
+export const featureBranchColor = "#FF7F7F";
 
 export type CodexSourceDescriptor = {
   icon: Icon;
@@ -128,4 +135,52 @@ export function getCodexStatusDescriptor(
   }
 
   return { label: "Active", tintColor: Color.Green, tooltip: "Active" };
+}
+
+export function getThreadIcon(thread: CodexThread) {
+  const sourceDescriptor = getCodexSourceDescriptor(thread.source);
+  const statusDescriptor = getCodexStatusDescriptor(thread.status);
+
+  return {
+    source: sourceDescriptor.icon,
+    ...(statusDescriptor.label
+      ? { tintColor: statusDescriptor.tintColor }
+      : {}),
+  };
+}
+
+export function getStatusAccessory(
+  thread: CodexThread,
+): List.Item.Accessory | undefined {
+  const statusDescriptor = getCodexStatusDescriptor(thread.status);
+
+  if (!statusDescriptor.label || statusDescriptor.label === "Active") {
+    return undefined;
+  }
+
+  return {
+    tag: {
+      value: statusDescriptor.label,
+      color: statusDescriptor.tintColor,
+    },
+    tooltip: statusDescriptor.tooltip,
+  };
+}
+
+export function getBranchAccessory(
+  thread: CodexThread,
+): List.Item.Accessory | undefined {
+  const branch = thread.gitInfo?.branch?.trim();
+  if (!branch) {
+    return undefined;
+  }
+
+  return {
+    icon: branch === "main" ? Icon.House : Icon.WrenchScrewdriver,
+    tag: {
+      value: branch,
+      color: branch === "main" ? mainBranchColor : featureBranchColor,
+    },
+    tooltip: `Git branch: ${branch}`,
+  };
 }

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolveCodexCliPath, shellCliCommand } from "./cli";
+import { withConcurrency } from "./concurrency";
 import {
   type CodexThreadLatestMessages,
   type CodexThreadTurn,
@@ -18,6 +19,7 @@ const threadPreviewMaxPages = 3;
 const defaultRequestTimeoutMs = 30_000;
 const secondsPerDay = 24 * 60 * 60;
 const threadPreviewMaxCharacters = 600;
+const threadReadConcurrency = 12;
 
 export const threadListLookbackDays = 30;
 export const threadListMaxResults = 500;
@@ -65,6 +67,11 @@ type ThreadSearchParams = {
   sortKey?: "created_at" | "updated_at" | null;
   sortDirection?: "asc" | "desc" | null;
   sourceKinds?: Array<(typeof allThreadSourceKinds)[number]> | null;
+};
+
+type ThreadReadParams = {
+  threadId: string;
+  includeTurns?: boolean;
 };
 
 type ThreadForkParams = {
@@ -126,6 +133,10 @@ type ThreadSearchResponse = {
   backwardsCursor: string | null;
 };
 
+type ThreadReadResponse = {
+  thread: CodexThread;
+};
+
 type ThreadForkResponse = {
   thread: CodexThread;
 };
@@ -143,6 +154,7 @@ type AppServerMethods = {
     params: ThreadSearchParams;
     result: ThreadSearchResponse;
   };
+  "thread/read": { params: ThreadReadParams; result: ThreadReadResponse };
   "thread/turns/list": {
     params: ThreadTurnsListParams;
     result: ThreadTurnsListResponse;
@@ -504,16 +516,98 @@ class CodexAppServerSession {
 }
 
 async function withCodexAppServerSession<T>(
-  work: (session: CodexAppServerSession) => Promise<T>,
+  work: (
+    session: CodexAppServerSession,
+    initializeResponse: InitializeResponse,
+  ) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted();
   const session = new CodexAppServerSession(await resolveCodexCliPath());
+  // Disposing the session on abort rejects the in-flight request so superseded
+  // work stops its Codex process instead of running to the end.
+  const onAbort = () => {
+    void session.dispose();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
-    await session.initialize();
-    return await work(session);
+    const initializeResponse = await session.initialize();
+    return await work(session, initializeResponse);
+  } catch (error) {
+    // The abort listener disposes the session mid-request; surface the abort
+    // rather than the generic disposal error.
+    signal?.throwIfAborted();
+    throw error;
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     await session.dispose();
   }
+}
+
+let codexHomeResolution: Promise<string> | undefined;
+
+// The Codex home folder cannot change while a command is running, so the
+// spawn-handshake-kill round trip is paid at most once per command run.
+export async function getCodexHome(): Promise<string> {
+  codexHomeResolution ??= withCodexAppServerSession(
+    async (_session, initializeResponse) => initializeResponse.codexHome,
+  ).catch((error: unknown) => {
+    codexHomeResolution = undefined;
+    throw error;
+  });
+
+  return codexHomeResolution;
+}
+
+export type ReadThreadsResult = {
+  threads: CodexThread[];
+  unavailableThreadIds: string[];
+};
+
+export async function readThreads(
+  threadIds: string[],
+  signal?: AbortSignal,
+): Promise<ReadThreadsResult> {
+  const uniqueThreadIds = Array.from(
+    new Set(threadIds.map((threadId) => threadId.trim()).filter(Boolean)),
+  );
+
+  if (uniqueThreadIds.length === 0) {
+    return { threads: [], unavailableThreadIds: [] };
+  }
+
+  return withCodexAppServerSession(async (session) => {
+    const threads: CodexThread[] = [];
+    const unavailableThreadIds: string[] = [];
+
+    await withConcurrency(
+      uniqueThreadIds,
+      threadReadConcurrency,
+      async (threadId) => {
+        signal?.throwIfAborted();
+        try {
+          const response = await session.request("thread/read", {
+            threadId,
+            includeTurns: false,
+          });
+          threads.push(normalizeListedThread(response.thread));
+        } catch (error) {
+          if (
+            isThreadNotFoundError(error, threadId, { includeNotLoaded: true })
+          ) {
+            unavailableThreadIds.push(threadId);
+            return;
+          }
+
+          throw error;
+        }
+      },
+    );
+
+    threads.sort((left, right) => right.updatedAt - left.updatedAt);
+    return { threads, unavailableThreadIds };
+  }, signal);
 }
 
 export async function listThreads({
@@ -589,59 +683,42 @@ export async function searchThreads(
   }
 
   return withCodexAppServerSession(async (session) => {
-    signal?.throwIfAborted();
-    // Disposing the session on abort rejects the in-flight request so a
-    // superseded search stops its Codex process instead of running to the end.
-    const onAbort = () => {
-      void session.dispose();
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
+    const hits: CodexThreadSearchHit[] = [];
+    const minUpdatedAt = getThreadListCutoffSeconds(windowDays);
+    let cursor: string | null = null;
+    let reachedWindowEnd = false;
 
-    try {
-      const hits: CodexThreadSearchHit[] = [];
-      const minUpdatedAt = getThreadListCutoffSeconds(windowDays);
-      let cursor: string | null = null;
-      let reachedWindowEnd = false;
+    do {
+      const response: ThreadSearchResponse = await session.request(
+        "thread/search",
+        {
+          searchTerm: query,
+          archived,
+          cursor,
+          limit: Math.min(threadPageSize, maxThreadCount - hits.length),
+          sortKey: "updated_at",
+          sortDirection: "desc",
+          sourceKinds: [...allThreadSourceKinds],
+        },
+      );
 
-      do {
-        let response: ThreadSearchResponse;
-        try {
-          response = await session.request("thread/search", {
-            searchTerm: query,
-            archived,
-            cursor,
-            limit: Math.min(threadPageSize, maxThreadCount - hits.length),
-            sortKey: "updated_at",
-            sortDirection: "desc",
-            sourceKinds: [...allThreadSourceKinds],
-          });
-        } catch (error) {
-          // The abort listener disposes the session mid-request; surface the
-          // abort rather than the generic disposal error.
-          signal?.throwIfAborted();
-          throw error;
-        }
+      hits.push(
+        ...response.data
+          .filter(({ thread }) => thread.updatedAt >= minUpdatedAt)
+          .map(({ thread, snippet }) => ({
+            threadId: thread.id,
+            snippet,
+          })),
+      );
+      cursor = response.nextCursor;
+      reachedWindowEnd = isPastThreadListWindow(
+        response.data.map(({ thread }) => thread),
+        minUpdatedAt,
+      );
+    } while (cursor && hits.length < maxThreadCount && !reachedWindowEnd);
 
-        hits.push(
-          ...response.data
-            .filter(({ thread }) => thread.updatedAt >= minUpdatedAt)
-            .map(({ thread, snippet }) => ({
-              threadId: thread.id,
-              snippet,
-            })),
-        );
-        cursor = response.nextCursor;
-        reachedWindowEnd = isPastThreadListWindow(
-          response.data.map(({ thread }) => thread),
-          minUpdatedAt,
-        );
-      } while (cursor && hits.length < maxThreadCount && !reachedWindowEnd);
-
-      return hits.slice(0, maxThreadCount);
-    } finally {
-      signal?.removeEventListener("abort", onAbort);
-    }
-  });
+    return hits.slice(0, maxThreadCount);
+  }, signal);
 }
 
 function getThreadListCutoffSeconds(windowDays: number): number {
@@ -912,11 +989,19 @@ export function buildResumeCommand(threadId: string): string {
   return `${shellQuote(shellCliCommand())} resume ${shellQuote(threadId)}`;
 }
 
-function isThreadNotFoundError(error: unknown, threadId: string): boolean {
+function isThreadNotFoundError(
+  error: unknown,
+  threadId: string,
+  { includeNotLoaded = false }: { includeNotLoaded?: boolean } = {},
+): boolean {
   const message = getErrorMessage(error).toLowerCase();
+  if (!message.includes(threadId.toLowerCase())) {
+    return false;
+  }
+
   return (
-    message.includes("thread not found") &&
-    message.includes(threadId.toLowerCase())
+    message.includes("thread not found") ||
+    (includeNotLoaded && message.includes("thread not loaded"))
   );
 }
 

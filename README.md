@@ -4,6 +4,15 @@ Monitor and manage your Codex tasks directly from Raycast.
 
 ## Commands
 
+### Manage Codex Projects
+
+Browse the real local Projects from the Codex desktop app, including their pinned order, primary and attached folders, and explicitly assigned threads.
+
+- Open an assigned thread in Codex.
+- Reveal available Project folders in Finder or copy their paths.
+- Inspect Project folder and activity details.
+- Refresh from a new read-only snapshot of Codex's local Project state.
+
 ### Search Threads
 
 Browse active and archived Codex threads updated in the last 30 days. Search by name, working directory, preview text, or full transcript text.
@@ -52,22 +61,17 @@ If none match, set the path manually in the **Codex CLI Path** preference.
 
 ## Preferences
 
-| Preference                    | Description                                                                                        |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| **Default Working Directory** | Folder new threads start in when you don't pick one. Used by all New Thread commands.              |
-| **Working Directory Root**    | Parent folder whose direct subfolders are offered as Working Directory choices.                    |
-| **Codex CLI Path**            | Path to the Codex CLI. Leave empty to auto-detect.                                                 |
+| Preference                    | Description                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| **Default Working Directory** | Folder new threads start in when you don't pick one. Used by all New Thread commands. |
+| **Working Directory Root**    | Parent folder whose direct subfolders are offered as Working Directory choices.       |
+| **Codex CLI Path**            | Path to the Codex CLI. Leave empty to auto-detect.                                    |
 
-## FAQ
+## Contributing
 
-### Can it move a thread into a desktop Project?
+**Via Raycast (recommended):**
 
-No. Resuming a thread keeps its working directory, but Codex manages desktop Project membership itself, and its public interfaces don't let an extension create a Project or assign a thread to one.
+1. Use the "Fork Extension" action in Raycast's root search
+2. Run `npm install && npm run dev` from the extension folder
 
-### Does the extension store my conversations?
-
-No. Transcript search runs through the local Codex app server, and the extension keeps no separate copy of your transcripts.
-
----
-
-_Codex is an unofficial extension and is not affiliated with or endorsed by OpenAI._
+When submitting changes, add yourself to contributors in `package.json` and update `CHANGELOG.md`.

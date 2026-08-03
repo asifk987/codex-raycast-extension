@@ -23,6 +23,14 @@ const codexAppLaunchTimeoutMs = 15000;
 const codexAppLaunchPollIntervalMs = 250;
 const codexAppSettleDelayMs = 2000;
 
+export function buildCodexThreadUrl(threadId: string): string {
+  return `codex://threads/${threadId}`;
+}
+
+export async function openCodexThread(threadId: string): Promise<void> {
+  await open(buildCodexThreadUrl(threadId));
+}
+
 export async function openCodexApp(): Promise<void> {
   await open(codexAppUrl);
 }

@@ -6,7 +6,12 @@ import {
   type CodexThread,
   listThreads,
 } from "./app-server";
-import { getErrorMessage, getProjectName, tildeifyPath } from "./format";
+import {
+  formatCount,
+  getErrorMessage,
+  getProjectName,
+  tildeifyPath,
+} from "./format";
 import { expandTildePath } from "./shell";
 
 type WorkingDirectoryRecordSource = "recent" | "projects-folder";
@@ -138,9 +143,7 @@ function buildProjectOptions(
         ? `${basename} - ${pathLabel}`
         : basename;
       const threadCount =
-        project.count > 0
-          ? ` (${project.count} ${project.count === 1 ? "thread" : "threads"})`
-          : "";
+        project.count > 0 ? ` (${formatCount(project.count, "thread")})` : "";
 
       return {
         cwd: project.cwd,
