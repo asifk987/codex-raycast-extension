@@ -10,7 +10,6 @@ import {
 import { useCachedState, usePromise } from "@raycast/utils";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
-import { useRef } from "react";
 import {
   getCodexHome,
   type CodexThread,
@@ -24,27 +23,23 @@ import {
   sortCodexDesktopProjects,
 } from "./utils/desktop-projects";
 import {
-  getBranchAccessory,
-  getCodexSourceDescriptor,
+  getBranchSubtitle,
   getStatusAccessory,
-  getThreadIcon,
+  getThreadIconAccessory,
+  getUpdatedAtAccessory,
 } from "./utils/display";
 import {
   formatCompactTimestampSeconds,
   formatCount,
-  formatTimestampSeconds,
   getThreadDisplayTitle,
   tildeifyPath,
 } from "./utils/format";
-import {
-  buildCodexThreadUrl,
-  openCodexThread,
-  openNewCodexThread,
-} from "./utils/launch";
+import { openCodexProject, openNewCodexThread } from "./utils/launch";
 import {
   revalidateWithToast,
   runNoViewActionWithFailureToast,
 } from "./utils/raycast";
+import { ThreadRowActions, ToggleDetailAction } from "./thread-actions";
 
 export default function ManageCodexProjectsCommand() {
   const [sortOrder, setSortOrder] = useCachedState<CodexProjectSortOrder>(
@@ -74,7 +69,7 @@ export default function ManageCodexProjectsCommand() {
   const refreshProjects = () =>
     revalidateWithToast(revalidate, {
       successTitle: "Projects Refreshed",
-      failureTitle: "Couldn't refresh Codex Projects",
+      failureTitle: "Couldn't refresh Codex projects",
     });
 
   if (!data && error) {
@@ -103,14 +98,16 @@ export default function ManageCodexProjectsCommand() {
             }
           }}
         >
-          {projectSortOptions.map((option) => (
-            <List.Dropdown.Item
-              key={option.value}
-              title={option.title}
-              value={option.value}
-              icon={option.icon}
-            />
-          ))}
+          <List.Dropdown.Section title="Sort by…">
+            {projectSortOptions.map((option) => (
+              <List.Dropdown.Item
+                key={option.value}
+                title={option.title}
+                value={option.value}
+                icon={{ source: option.icon, tintColor: option.color }}
+              />
+            ))}
+          </List.Dropdown.Section>
         </List.Dropdown>
       }
     >
@@ -134,14 +131,14 @@ export default function ManageCodexProjectsCommand() {
       {!isLoading && projects.length === 0 ? (
         <List.EmptyView
           title="No Codex Projects"
-          description="Projects created in the Codex desktop app will appear here."
+          description="Projects you create in the Codex desktop app will appear here."
           icon={Icon.Folder}
           actions={
             <ActionPanel>
               <Action
                 title="Refresh Projects"
                 icon={Icon.ArrowClockwise}
-                shortcut={{ modifiers: ["cmd"], key: "r" }}
+                shortcut={Keyboard.Shortcut.Common.Refresh}
                 onAction={refreshProjects}
               />
             </ActionPanel>
@@ -170,7 +167,12 @@ function LoadErrorDetail({
       markdown={`# ${title}\n\n${error.message}`}
       actions={
         <ActionPanel>
-          <Action title="Retry" icon={Icon.ArrowClockwise} onAction={onRetry} />
+          <Action
+            title="Retry"
+            icon={Icon.ArrowClockwise}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
+            onAction={onRetry}
+          />
         </ActionPanel>
       }
     />
@@ -195,16 +197,6 @@ function ProjectListItem({
     <List.Item
       id={project.id}
       title={{ value: project.name, tooltip: project.name }}
-      subtitle={
-        isShowingDetail
-          ? undefined
-          : primaryRoot
-            ? {
-                value: tildeifyPath(primaryRoot.path),
-                tooltip: primaryRoot.path,
-              }
-            : "No folders"
-      }
       icon={
         primaryRoot?.isAvailable ? { fileIcon: primaryRoot.path } : Icon.Folder
       }
@@ -223,10 +215,7 @@ function ProjectListItem({
               {
                 icon: Icon.Message,
                 text: formatCount(project.threadIds.length, "thread"),
-                tooltip: formatCount(
-                  project.threadIds.length,
-                  "assigned thread",
-                ),
+                tooltip: `${formatCount(project.threadIds.length, "thread")} in project`,
               },
               {
                 icon: Icon.Folder,
@@ -281,18 +270,28 @@ function ProjectActions({
   const attachedFinderRoots = project.roots
     .map((root, index) => ({ ...root, index }))
     .filter((root) => root.isAvailable && root.path !== primaryRoot?.path);
-  const hasAvailableRoot = project.roots.some((root) => root.isAvailable);
 
   return (
     <ActionPanel>
       <Action.Push
-        title="View Tasks"
+        title="View Threads"
         icon={Icon.Message}
         target={<ProjectThreads project={project} />}
       />
+      <Action
+        title="Open in Desktop"
+        icon={Icon.AppWindow}
+        shortcut={{ modifiers: ["cmd"], key: "return" }}
+        onAction={() =>
+          runNoViewActionWithFailureToast(
+            "Unable to open project in desktop app",
+            () => openCodexProject(project.id),
+          )
+        }
+      />
       {primaryRoot?.isAvailable ? (
         <Action
-          title="New Task in Project"
+          title="New Thread in Project"
           icon={Icon.PlusCircle}
           shortcut={Keyboard.Shortcut.Common.New}
           onAction={() =>
@@ -303,74 +302,52 @@ function ProjectActions({
           }
         />
       ) : null}
+      <ToggleDetailAction
+        isShowingDetail={isShowingDetail}
+        onToggleDetail={onToggleDetail}
+      />
       <Action
-        title={isShowingDetail ? "Hide Details" : "Show Details"}
-        icon={isShowingDetail ? Icon.AppWindowList : Icon.AppWindowSidebarRight}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
-        onAction={onToggleDetail}
+        title="Refresh Projects"
+        icon={Icon.ArrowClockwise}
+        shortcut={Keyboard.Shortcut.Common.Refresh}
+        onAction={onRefresh}
       />
 
-      {hasAvailableRoot ? (
-        <ActionPanel.Section title="Folders">
-          {primaryRoot?.isAvailable ? (
-            <Action.ShowInFinder
-              title="Reveal Primary Folder in Finder"
-              path={primaryRoot.path}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "o" }}
-            />
-          ) : null}
-          {attachedFinderRoots.length === 1 && attachedFinderRoots[0] ? (
-            <Action.ShowInFinder
-              title={`Reveal ${getRootActionLabel(
-                attachedFinderRoots[0].path,
-                attachedFinderRoots[0].index,
-              )} in Finder`}
-              path={attachedFinderRoots[0].path}
-            />
-          ) : attachedFinderRoots.length > 1 ? (
-            <ActionPanel.Submenu
-              title="Reveal Attached Folders in Finder"
-              icon={Icon.Paperclip}
-            >
-              {attachedFinderRoots.map((root) => (
-                <Action.ShowInFinder
-                  key={root.path}
-                  title={getRootActionLabel(root.path, root.index)}
-                  path={root.path}
-                />
-              ))}
-            </ActionPanel.Submenu>
-          ) : null}
-        </ActionPanel.Section>
-      ) : null}
-
-      {project.roots.length > 0 ? (
-        <ActionPanel.Section title="Copy">
-          {primaryRoot ? (
-            <Action.CopyToClipboard
-              title="Copy Primary Folder Path"
-              content={primaryRoot.path}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
-            />
-          ) : null}
-          {project.roots.length > 1 ? (
-            <Action.CopyToClipboard
-              title="Copy All Folder Paths"
-              content={project.roots.map((root) => root.path).join("\n")}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-            />
-          ) : null}
-        </ActionPanel.Section>
-      ) : null}
-
-      <ActionPanel.Section>
-        <Action
-          title="Refresh Projects"
-          icon={Icon.ArrowClockwise}
-          shortcut={{ modifiers: ["cmd"], key: "r" }}
-          onAction={onRefresh}
+      {primaryRoot?.isAvailable ? (
+        <Action.ShowInFinder
+          title="Open in Finder"
+          path={primaryRoot.path}
+          shortcut={Keyboard.Shortcut.Common.OpenWith}
         />
-      </ActionPanel.Section>
+      ) : null}
+      {attachedFinderRoots.length > 0 ? (
+        <ActionPanel.Submenu
+          title="Open Attached Folder in Finder"
+          icon={Icon.Paperclip}
+        >
+          {attachedFinderRoots.map((root) => (
+            <Action.ShowInFinder
+              key={root.path}
+              title={getRootActionLabel(root.path, root.index)}
+              path={root.path}
+            />
+          ))}
+        </ActionPanel.Submenu>
+      ) : null}
+      {primaryRoot ? (
+        <Action.CopyToClipboard
+          title="Copy Path"
+          content={primaryRoot.path}
+          shortcut={Keyboard.Shortcut.Common.CopyPath}
+        />
+      ) : null}
+      {project.roots.length > 1 ? (
+        <Action.CopyToClipboard
+          title="Copy All Paths"
+          content={project.roots.map((root) => root.path).join("\n")}
+          shortcut={Keyboard.Shortcut.Common.Copy}
+        />
+      ) : null}
     </ActionPanel>
   );
 }
@@ -460,26 +437,19 @@ function ProjectListDetail({
   );
 }
 
+async function loadProjectThreads(projectId: string) {
+  const project = (await loadProjects()).find(
+    (candidate) => candidate.id === projectId,
+  );
+  if (!project) throw new Error("This Codex project no longer exists.");
+  return readThreads(project.threadIds);
+}
+
 function ProjectThreads({ project }: { project: CodexDesktopProject }) {
-  const threadReadAbortable = useRef<AbortController>(undefined);
   const { data, error, isLoading, revalidate } = usePromise(
-    async (projectId: string) => {
-      const currentProject = (await loadProjects()).find(
-        (candidate) => candidate.id === projectId,
-      );
-
-      if (!currentProject) {
-        throw new Error(`Codex Project "${project.name}" no longer exists.`);
-      }
-
-      return readThreads(
-        currentProject.threadIds,
-        threadReadAbortable.current?.signal,
-      );
-    },
+    loadProjectThreads,
     [project.id],
     {
-      abortable: threadReadAbortable,
       failureToastOptions: {
         title: `Couldn't load ${project.name} threads`,
       },
@@ -512,7 +482,7 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
     >
       {threads.length > 0 ? (
         <List.Section
-          title="Assigned Threads"
+          title="Threads"
           subtitle={getThreadSectionSubtitle(threads.length, unavailableCount)}
         >
           {threads.map((thread) => (
@@ -526,15 +496,11 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
       ) : null}
       {!isLoading && threads.length === 0 ? (
         <List.EmptyView
-          title={
-            unavailableCount > 0
-              ? "No Available Threads"
-              : "No Assigned Threads"
-          }
+          title={unavailableCount > 0 ? "No Available Threads" : "No Threads"}
           description={
             unavailableCount > 0
-              ? "Codex no longer has readable records for this Project's stored thread assignments."
-              : "Threads assigned to this Project in Codex will appear here."
+              ? "This project's threads were deleted or their history is gone."
+              : "Threads assigned to this project will appear here."
           }
           icon={unavailableCount > 0 ? Icon.Warning : Icon.Message}
           actions={
@@ -542,7 +508,7 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
               <Action
                 title="Refresh Threads"
                 icon={Icon.ArrowClockwise}
-                shortcut={{ modifiers: ["cmd"], key: "r" }}
+                shortcut={Keyboard.Shortcut.Common.Refresh}
                 onAction={refreshThreads}
               />
             </ActionPanel>
@@ -566,72 +532,21 @@ function ProjectThreadItem({
     <List.Item
       id={thread.id}
       title={{ value: displayTitle, tooltip: displayTitle }}
-      subtitle={{ value: tildeifyPath(thread.cwd), tooltip: thread.cwd }}
-      icon={{
-        value: getThreadIcon(thread),
-        tooltip: getCodexSourceDescriptor(thread.source).tooltip,
-      }}
+      subtitle={getBranchSubtitle(thread)}
+      icon={getThreadIconAccessory(thread)}
       keywords={[thread.id, thread.cwd, thread.gitInfo?.branch ?? ""]}
       accessories={[
-        ...[getStatusAccessory(thread), getBranchAccessory(thread)].filter(
-          (accessory) => accessory !== undefined,
-        ),
-        {
-          date: new Date(thread.updatedAt * 1000),
-          tooltip: `Updated ${formatTimestampSeconds(thread.updatedAt)}`,
-        },
-      ]}
-      actions={<ProjectThreadActions thread={thread} onRefresh={onRefresh} />}
+        getStatusAccessory(thread),
+        getUpdatedAtAccessory(thread),
+      ].filter((accessory) => accessory !== undefined)}
+      actions={
+        <ThreadRowActions
+          thread={thread}
+          refreshTitle="Refresh Threads"
+          onRefresh={onRefresh}
+        />
+      }
     />
-  );
-}
-
-function ProjectThreadActions({
-  thread,
-  onRefresh,
-}: {
-  thread: CodexThread;
-  onRefresh: () => Promise<void>;
-}) {
-  return (
-    <ActionPanel>
-      <Action
-        title="Open in Codex"
-        icon={Icon.AppWindow}
-        onAction={() =>
-          runNoViewActionWithFailureToast(
-            "Unable to open thread in Codex",
-            () => openCodexThread(thread.id),
-          )
-        }
-      />
-      <Action.ShowInFinder
-        title="Reveal Working Directory in Finder"
-        path={thread.cwd}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "o" }}
-      />
-      <ActionPanel.Section>
-        <Action.CopyToClipboard
-          title="Copy Thread Deeplink"
-          content={buildCodexThreadUrl(thread.id)}
-          shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-        />
-        <Action.CopyToClipboard
-          title="Copy Working Directory"
-          content={thread.cwd}
-          shortcut={{ modifiers: ["cmd", "shift"], key: "," }}
-        />
-        <Action.CopyToClipboard title="Copy Thread ID" content={thread.id} />
-      </ActionPanel.Section>
-      <ActionPanel.Section>
-        <Action
-          title="Refresh Threads"
-          icon={Icon.ArrowClockwise}
-          shortcut={{ modifiers: ["cmd"], key: "r" }}
-          onAction={onRefresh}
-        />
-      </ActionPanel.Section>
-    </ActionPanel>
   );
 }
 
@@ -662,9 +577,25 @@ const projectSortOptions: Array<{
   value: CodexProjectSortOrder;
   title: string;
   icon: Icon;
+  color: Color;
 }> = [
-  { value: "default", title: "Default", icon: Icon.AppWindowList },
-  { value: "name", title: "Name", icon: Icon.Text },
-  { value: "thread-count", title: "Thread Count", icon: Icon.Message },
-  { value: "folder-count", title: "Folder Count", icon: Icon.Folder },
+  {
+    value: "default",
+    title: "Default",
+    icon: Icon.AppWindowList,
+    color: Color.SecondaryText,
+  },
+  { value: "name", title: "Name", icon: Icon.Text, color: Color.Blue },
+  {
+    value: "thread-count",
+    title: "Thread Count",
+    icon: Icon.Message,
+    color: Color.Purple,
+  },
+  {
+    value: "folder-count",
+    title: "Folder Count",
+    icon: Icon.Folder,
+    color: Color.Orange,
+  },
 ];

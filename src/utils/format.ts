@@ -36,6 +36,15 @@ export function formatCount(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
+const compactTokenFormatter = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+export function formatCompactTokens(tokens: number): string {
+  return compactTokenFormatter.format(tokens);
+}
+
 export function getThreadDisplayTitle(thread: {
   name: string | null;
   preview: string;
@@ -50,6 +59,17 @@ export function getThreadDisplayTitle(thread: {
     .find(Boolean);
 
   return firstPreviewLine ?? thread.id;
+}
+
+export function getThreadAgentLabel(thread: {
+  agentNickname: string | null;
+  agentRole: string | null;
+}): string {
+  const nickname = thread.agentNickname?.trim();
+  const role = thread.agentRole?.trim();
+
+  if (nickname && role) return `${nickname} (${role})`;
+  return nickname || role || "";
 }
 
 export function getErrorMessage(error: unknown): string {

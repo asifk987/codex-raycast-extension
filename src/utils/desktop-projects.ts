@@ -250,7 +250,6 @@ function parseThreadAssignments(
       !isRecord(assignment) ||
       assignment.projectKind !== "local" ||
       typeof assignment.projectId !== "string" ||
-      typeof assignment.pendingCoreUpdate !== "boolean" ||
       !projectsById.has(assignment.projectId)
     ) {
       continue;

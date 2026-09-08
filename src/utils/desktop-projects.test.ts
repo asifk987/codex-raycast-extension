@@ -40,22 +40,18 @@ test("preserves Project order, root order, pins, and explicit thread assignments
       "thread-1": {
         projectKind: "local",
         projectId: "project-1",
-        pendingCoreUpdate: false,
       },
       "thread-2": {
         projectKind: "local",
         projectId: "project-2",
-        pendingCoreUpdate: true,
       },
       "thread-stale": {
         projectKind: "local",
         projectId: "missing",
-        pendingCoreUpdate: false,
       },
       "thread-projectless": {
         projectKind: "local",
         projectId: "project-1",
-        pendingCoreUpdate: false,
       },
     },
   });

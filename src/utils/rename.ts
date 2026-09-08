@@ -33,7 +33,6 @@ export async function autoRenameCodexThreads({
   }) => void;
   threads: CodexThread[];
 }): Promise<AutoRenameResult[]> {
-  // Tracks how many threads have completed so far for ordered progress reporting.
   let completed = 0;
 
   return withConcurrency(threads, renameConcurrency, async (thread) => {
