@@ -208,29 +208,21 @@ function buildOrderedProjectIds(
   projectsById: Map<string, unknown>,
   projectOrder: unknown,
 ): string[] {
-  const orderedProjectIds: string[] = [];
-  const seenProjectIds = new Set<string>();
+  const orderedProjectIds = new Set<string>();
 
   if (Array.isArray(projectOrder)) {
     for (const projectId of projectOrder) {
-      if (
-        typeof projectId === "string" &&
-        projectsById.has(projectId) &&
-        !seenProjectIds.has(projectId)
-      ) {
-        orderedProjectIds.push(projectId);
-        seenProjectIds.add(projectId);
+      if (typeof projectId === "string" && projectsById.has(projectId)) {
+        orderedProjectIds.add(projectId);
       }
     }
   }
 
   for (const projectId of projectsById.keys()) {
-    if (!seenProjectIds.has(projectId)) {
-      orderedProjectIds.push(projectId);
-    }
+    orderedProjectIds.add(projectId);
   }
 
-  return orderedProjectIds;
+  return [...orderedProjectIds];
 }
 
 function parseThreadAssignments(

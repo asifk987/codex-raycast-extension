@@ -75,26 +75,13 @@ function buildProjectOptions(
   records: WorkingDirectoryRecord[],
   selectedCwd: string | null,
 ): WorkingDirectoryOption[] {
-  const projectsByCwd = new Map<
-    string,
-    {
-      cwd: string;
-      count: number;
-      updatedAt: number;
-    }
-  >();
-  const cwdsByBasename = new Map<string, Set<string>>();
+  const projectsByCwd = new Map<string, WorkingDirectoryRecord>();
 
   for (const record of records) {
     const normalizedCwd = normalizeOptionalPath(record.cwd);
     if (!normalizedCwd) {
       continue;
     }
-
-    const basename = getProjectName(normalizedCwd);
-    const cwds = cwdsByBasename.get(basename) ?? new Set<string>();
-    cwds.add(normalizedCwd);
-    cwdsByBasename.set(basename, cwds);
 
     const project = projectsByCwd.get(normalizedCwd);
     if (project) {
@@ -112,11 +99,6 @@ function buildProjectOptions(
 
   const normalizedSelectedCwd = normalizeOptionalPath(selectedCwd);
   if (normalizedSelectedCwd && !projectsByCwd.has(normalizedSelectedCwd)) {
-    const basename = getProjectName(normalizedSelectedCwd);
-    const cwds = cwdsByBasename.get(basename) ?? new Set<string>();
-    cwds.add(normalizedSelectedCwd);
-    cwdsByBasename.set(basename, cwds);
-
     projectsByCwd.set(normalizedSelectedCwd, {
       cwd: normalizedSelectedCwd,
       count: 0,
@@ -124,10 +106,16 @@ function buildProjectOptions(
     });
   }
 
+  const basenameCounts = new Map<string, number>();
+  for (const cwd of projectsByCwd.keys()) {
+    const basename = getProjectName(cwd);
+    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
+  }
+
   return Array.from(projectsByCwd.values())
     .map((project) => {
       const basename = getProjectName(project.cwd);
-      const shouldDisambiguate = (cwdsByBasename.get(basename)?.size ?? 0) > 1;
+      const shouldDisambiguate = (basenameCounts.get(basename) ?? 0) > 1;
       const pathLabel = tildeifyPath(project.cwd);
       const titlePrefix = shouldDisambiguate
         ? `${basename} - ${pathLabel}`

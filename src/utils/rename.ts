@@ -37,63 +37,54 @@ export async function autoRenameCodexThreads({
 
   return withConcurrency(threads, renameConcurrency, async (thread) => {
     const previousTitle = getThreadDisplayTitle(thread);
+    let result: AutoRenameResult;
 
     try {
       const nextTitle = (await generateCodexThreadTitle(thread)).trim();
 
       if (areEquivalentThreadNames(previousTitle, nextTitle)) {
-        const completedCount = (completed += 1);
-        onProgress?.({
-          completedCount,
-          total: threads.length,
-          thread,
-          title: previousTitle,
-        });
-        return {
+        result = {
           id: thread.id,
           previousTitle,
           nextTitle,
           status: "skipped",
-        } satisfies AutoRenameResult;
+        };
+      } else {
+        const renameResult = await setThreadName(thread.id, nextTitle, {
+          archived,
+        });
+        result = {
+          id: thread.id,
+          previousTitle,
+          nextTitle,
+          status: "renamed",
+          renameStrategy: renameResult.strategy,
+          directError:
+            renameResult.strategy === "archivedFallback"
+              ? renameResult.directError
+              : undefined,
+        };
       }
-
-      const renameResult = await setThreadName(thread.id, nextTitle, {
-        archived,
-      });
-      const completedCount = (completed += 1);
-      onProgress?.({
-        completedCount,
-        total: threads.length,
-        thread,
-        title: nextTitle,
-      });
-      return {
-        id: thread.id,
-        previousTitle,
-        nextTitle,
-        status: "renamed",
-        renameStrategy: renameResult.strategy,
-        directError:
-          renameResult.strategy === "archivedFallback"
-            ? renameResult.directError
-            : undefined,
-      } satisfies AutoRenameResult;
     } catch (error) {
-      const completedCount = (completed += 1);
-      onProgress?.({
-        completedCount,
-        total: threads.length,
-        thread,
-        title: previousTitle,
-      });
-      return {
+      result = {
         id: thread.id,
         previousTitle,
         nextTitle: null,
         status: "failed",
         error: getErrorMessage(error),
-      } satisfies AutoRenameResult;
+      };
     }
+
+    onProgress?.({
+      completedCount: ++completed,
+      total: threads.length,
+      thread,
+      title:
+        result.status === "renamed"
+          ? (result.nextTitle ?? previousTitle)
+          : previousTitle,
+    });
+    return result;
   });
 }
 

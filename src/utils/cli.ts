@@ -15,7 +15,6 @@ import { expandTildePath } from "./shell";
 
 const execFileAsync = promisify(execFile);
 
-let cachedCodexCliPath: string | undefined;
 let cachedShellCliCommand: string | undefined;
 let codexCliResolution: Promise<string> | undefined;
 
@@ -60,21 +59,10 @@ function resolveShellCliCommand(): string {
 }
 
 export async function resolveCodexCliPath(): Promise<string> {
-  if (cachedCodexCliPath) {
-    return cachedCodexCliPath;
-  }
-  if (!codexCliResolution) {
-    codexCliResolution = resolveCodexCliPathUncached().then(
-      (resolvedPath) => {
-        cachedCodexCliPath = resolvedPath;
-        return resolvedPath;
-      },
-      (error) => {
-        codexCliResolution = undefined;
-        throw error;
-      },
-    );
-  }
+  codexCliResolution ??= resolveCodexCliPathUncached().catch((error) => {
+    codexCliResolution = undefined;
+    throw error;
+  });
   return codexCliResolution;
 }
 

@@ -1,8 +1,6 @@
 export type CodexThreadLatestMessages = {
   lastUserMessage: string | null;
   lastAgentMessage: string | null;
-  lastUserMessageOrder: number | null;
-  lastAgentMessageOrder: number | null;
 };
 
 export type CodexThreadTurn = {
@@ -20,9 +18,6 @@ export function extractLatestThreadMessages(
 ): CodexThreadLatestMessages {
   let lastUserMessage: string | null = null;
   let lastAgentMessage: string | null = null;
-  let lastUserMessageOrder: number | null = null;
-  let lastAgentMessageOrder: number | null = null;
-  let messageOrder = 0;
 
   for (const turn of turns) {
     for (
@@ -34,22 +29,16 @@ export function extractLatestThreadMessages(
 
       if (!lastAgentMessage && isAgentMessage(item)) {
         lastAgentMessage = item.text.trim() || null;
-        lastAgentMessageOrder = messageOrder;
-        messageOrder += 1;
       }
 
       if (!lastUserMessage && isUserMessage(item)) {
         lastUserMessage = formatMessage(item.content);
-        lastUserMessageOrder = messageOrder;
-        messageOrder += 1;
       }
 
       if (lastUserMessage && lastAgentMessage) {
         return {
           lastUserMessage,
           lastAgentMessage,
-          lastUserMessageOrder,
-          lastAgentMessageOrder,
         };
       }
     }
@@ -58,8 +47,6 @@ export function extractLatestThreadMessages(
   return {
     lastUserMessage,
     lastAgentMessage,
-    lastUserMessageOrder,
-    lastAgentMessageOrder,
   };
 }
 
