@@ -34,7 +34,7 @@ import {
   getThreadDisplayTitle,
   tildeifyPath,
 } from "./utils/format";
-import { openCodexProject, openNewCodexThread } from "./utils/launch";
+import { openCodexProject } from "./utils/launch";
 import {
   revalidateWithToast,
   runNoViewActionWithFailureToast,
@@ -289,19 +289,7 @@ function ProjectActions({
           )
         }
       />
-      {primaryRoot?.isAvailable ? (
-        <Action
-          title="New Thread in Project"
-          icon={Icon.PlusCircle}
-          shortcut={Keyboard.Shortcut.Common.New}
-          onAction={() =>
-            runNoViewActionWithFailureToast(
-              "Unable to start thread in Codex",
-              () => openNewCodexThread({ path: primaryRoot.path }),
-            )
-          }
-        />
-      ) : null}
+      <NewProjectThreadAction projectId={project.id} />
       <ToggleDetailAction
         isShowingDetail={isShowingDetail}
         onToggleDetail={onToggleDetail}
@@ -445,6 +433,21 @@ async function loadProjectThreads(projectId: string) {
   return readThreads(project.threadIds);
 }
 
+function NewProjectThreadAction({ projectId }: { projectId: string }) {
+  return (
+    <Action
+      title="New Thread in Project"
+      icon={Icon.PlusCircle}
+      shortcut={Keyboard.Shortcut.Common.New}
+      onAction={() =>
+        runNoViewActionWithFailureToast("Unable to start thread in Codex", () =>
+          openCodexProject(projectId),
+        )
+      }
+    />
+  );
+}
+
 function ProjectThreads({ project }: { project: CodexDesktopProject }) {
   const { data, error, isLoading, revalidate } = usePromise(
     loadProjectThreads,
@@ -489,14 +492,21 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
             <ProjectThreadItem
               key={thread.id}
               thread={thread}
+              projectId={project.id}
               onRefresh={refreshThreads}
             />
           ))}
         </List.Section>
       ) : null}
-      {!isLoading && threads.length === 0 ? (
+      {!isLoading ? (
         <List.EmptyView
-          title={unavailableCount > 0 ? "No Available Threads" : "No Threads"}
+          title={
+            threads.length > 0
+              ? "No Matching Threads"
+              : unavailableCount > 0
+                ? "No Available Threads"
+                : "No Threads"
+          }
           description={
             unavailableCount > 0
               ? "This project's threads were deleted or their history is gone."
@@ -505,6 +515,7 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
           icon={unavailableCount > 0 ? Icon.Warning : Icon.Message}
           actions={
             <ActionPanel>
+              <NewProjectThreadAction projectId={project.id} />
               <Action
                 title="Refresh Threads"
                 icon={Icon.ArrowClockwise}
@@ -521,9 +532,11 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
 
 function ProjectThreadItem({
   thread,
+  projectId,
   onRefresh,
 }: {
   thread: CodexThread;
+  projectId: string;
   onRefresh: () => Promise<void>;
 }) {
   const displayTitle = getThreadDisplayTitle(thread);
@@ -544,7 +557,9 @@ function ProjectThreadItem({
           thread={thread}
           refreshTitle="Refresh Threads"
           onRefresh={onRefresh}
-        />
+        >
+          <NewProjectThreadAction projectId={projectId} />
+        </ThreadRowActions>
       }
     />
   );

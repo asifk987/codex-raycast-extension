@@ -43,7 +43,6 @@ export type McpServerRecord = {
 export type McpServerFormValues = {
   name: string;
   transport: "stdio" | "http";
-  enabled: boolean;
   command?: string;
   arguments?: string;
   environmentVariables?: string;
@@ -278,7 +277,6 @@ export function buildMcpServerConfig(
     delete config[field];
   }
 
-  config.enabled = values.enabled;
   setOptional(
     config,
     "default_tools_approval_mode",

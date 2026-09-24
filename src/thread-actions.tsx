@@ -12,10 +12,12 @@ export function ThreadRowActions({
   thread,
   refreshTitle,
   onRefresh,
+  children,
 }: {
   thread: CodexThread;
   refreshTitle: string;
   onRefresh: () => Promise<unknown>;
+  children?: React.ComponentProps<typeof ActionPanel>["children"];
 }) {
   return (
     <ActionPanel>
@@ -34,6 +36,7 @@ export function ThreadRowActions({
         path={thread.cwd}
         shortcut={Keyboard.Shortcut.Common.OpenWith}
       />
+      {children}
       <Action
         title={refreshTitle}
         icon={Icon.ArrowClockwise}

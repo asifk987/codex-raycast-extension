@@ -301,7 +301,6 @@ test("builds stdio and HTTP configs while preserving unknown fields", () => {
     {
       name: "remote",
       transport: "http",
-      enabled: true,
       url: "https://new.example/mcp",
       authentication: "bearerEnvironment",
       bearerTokenEnvironmentName: "MCP_TOKEN",
@@ -315,7 +314,6 @@ test("builds stdio and HTTP configs while preserving unknown fields", () => {
     scopes: ["read"],
     oauth_resource: "https://old.example",
     unknown: { keep: true },
-    enabled: true,
     enabled_tools: ["search", "resolve"],
     bearer_token_env_var: "MCP_TOKEN",
     http_headers: { "x-api-key": "rotated-secret" },
@@ -330,7 +328,6 @@ test("builds stdio and HTTP configs while preserving unknown fields", () => {
     {
       name: "remote",
       transport: "http",
-      enabled: true,
       url: "https://new.example/mcp",
       authentication: "oauth",
       httpHeaders: "",
@@ -345,7 +342,6 @@ test("builds stdio and HTTP configs while preserving unknown fields", () => {
     {
       name: "local",
       transport: "stdio",
-      enabled: false,
       command: "npx",
       arguments: "-y\nserver-package",
       environmentVariables: "API_KEY=secret",
@@ -355,7 +351,6 @@ test("builds stdio and HTTP configs while preserving unknown fields", () => {
   assert.deepEqual(stdio, {
     unknown: { keep: true },
     cwd: "/srv/tool",
-    enabled: false,
     command: "npx",
     args: ["-y", "server-package"],
     env: { API_KEY: "secret" },
@@ -369,33 +364,47 @@ test("accepts package-style server names", () => {
   assert.ok(mcpServers.validateMcpServerName("bad name", []));
 });
 
-test("transport switches remove incompatible config and preserve unrelated options", () => {
+test("form edits preserve enablement while transport switches remove incompatible config", () => {
   const stdio = mcpServers.buildMcpServerConfig(
-    { name: "server", transport: "stdio", enabled: true, command: "node" },
+    { name: "server", transport: "stdio", command: "node" },
     {
       url: "https://example.test/mcp",
       oauth: { client_id: "public-client" },
       http_headers_helper: "get-headers",
+      enabled: false,
       tool_timeout_sec: 60,
     },
   );
   assert.deepEqual(stdio, {
     command: "node",
-    enabled: true,
+    enabled: false,
     tool_timeout_sec: 60,
   });
   const http = mcpServers.buildMcpServerConfig(
     {
       name: "server",
       transport: "http",
-      enabled: true,
       url: "https://example.test/mcp",
     },
     { command: "node", env_vars: ["TOKEN"], tool_timeout_sec: 60 },
   );
   assert.deepEqual(http, {
     url: "https://example.test/mcp",
-    enabled: true,
     tool_timeout_sec: 60,
   });
+});
+
+test("new server configs omit default enablement and survive JSON transport unchanged", () => {
+  const config = mcpServers.buildMcpServerConfig({
+    name: "Keenable",
+    transport: "stdio",
+    command: "npx",
+    arguments: "-y\n@keenable/mcp",
+  });
+
+  assert.deepEqual(config, {
+    command: "npx",
+    args: ["-y", "@keenable/mcp"],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(config)), config);
 });

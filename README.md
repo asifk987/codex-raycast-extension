@@ -20,6 +20,7 @@ Inspect the MCP servers Codex knows about, their sign-in state, where each one i
 Browse the projects configured in the Codex desktop app, including their pinned order, primary and attached folders, and the threads assigned to them.
 
 - **Open in Desktop** (⌘↵) opens a new composer with the saved project selected, keeping the desktop app's current mode.
+- **New Thread in Project** (⌘N) opens a blank composer in the selected project from the project list or its thread list, including empty projects.
 - Open an assigned thread in Codex.
 - Reveal available project folders in Finder or copy their paths.
 - Inspect project folder and activity details.

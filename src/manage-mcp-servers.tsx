@@ -1178,7 +1178,6 @@ function getInitialFormValues(record?: McpServerRecord): McpServerFormValues {
   return {
     name: record?.name ?? "",
     transport,
-    enabled: config.enabled !== false,
     command: typeof config.command === "string" ? config.command : "",
     arguments: stringArray(config.args).join("\n"),
     environmentVariables: formatKeyValueMap(config.env),
