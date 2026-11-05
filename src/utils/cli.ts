@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { getPreferenceValues } from "@raycast/api";
 import {
   buildCodexCliCandidatePaths,
-  bundledCodexCliPath,
+  bundledCodexCliPaths,
   userInstalledCodexCliPaths,
 } from "./cli-paths";
 import { getErrorMessage } from "./format";
@@ -25,10 +25,10 @@ class CodexCliResolutionError extends Error {
   }
 }
 
-function getPreferredCodexCliPath(): string {
+function getPreferredCodexCliPath(): string | undefined {
   const preferences = getPreferenceValues<Preferences>();
   const configuredPath = preferences.codexCliPath?.trim();
-  return configuredPath ? expandTildePath(configuredPath) : bundledCodexCliPath;
+  return configuredPath ? expandTildePath(configuredPath) : undefined;
 }
 
 // Command for the user's own shell, which has a full PATH: prefer plain
@@ -41,21 +41,16 @@ export function shellCliCommand(): string {
 }
 
 function resolveShellCliCommand(): string {
-  const preferences = getPreferenceValues<Preferences>();
-  const configuredPath = preferences.codexCliPath?.trim();
+  const configuredPath = getPreferredCodexCliPath();
   if (configuredPath) {
-    return expandTildePath(configuredPath);
+    return configuredPath;
   }
 
   if (userInstalledCodexCliPaths(homedir()).some((path) => existsSync(path))) {
     return "codex";
   }
 
-  if (existsSync(bundledCodexCliPath)) {
-    return bundledCodexCliPath;
-  }
-
-  return "codex";
+  return bundledCodexCliPaths.find((path) => existsSync(path)) ?? "codex";
 }
 
 export async function resolveCodexCliPath(): Promise<string> {

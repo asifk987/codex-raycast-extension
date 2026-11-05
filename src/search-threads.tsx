@@ -22,6 +22,7 @@ import {
   useForm,
   usePromise,
 } from "@raycast/utils";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -169,8 +170,8 @@ export default function CodexThreadsCommand() {
   } = useCachedPromise(listThreads, threadListArgs, {
     keepPreviousData: true,
   });
-  // Codex leaves a thread out of thread/list until it has its first message, so
-  // a fork made here is read by id until the list starts returning it.
+  // Codex can omit forks with empty previews from thread/list, so a fork made
+  // here is read by id until the list starts returning it.
   const [forkedThreadIds, setForkedThreadIds] = useState<string[]>([]);
   const listedThreadIds = useMemo(
     () => new Set((fetchedThreads ?? emptyThreads).map((thread) => thread.id)),
@@ -261,7 +262,11 @@ export default function CodexThreadsCommand() {
     hits: CodexThreadSearchHit[];
   }>({ query: "", archived: false, hits: [] });
   const searchAbortable = useRef<AbortController>(undefined);
-  const { error: searchError, isLoading: isSearching } = usePromise(
+  const {
+    error: searchError,
+    isLoading: isSearching,
+    revalidate: revalidateTranscriptSearch,
+  } = usePromise(
     (query: string, isArchived: boolean) =>
       searchThreads(
         query,
@@ -333,16 +338,35 @@ export default function CodexThreadsCommand() {
     displayedThreads.some((thread) => thread.id === selectedThreadId)
       ? selectedThreadId
       : (displayedThreads[0]?.id ?? null);
+  const previewAbortable = useRef<AbortController>(undefined);
   const {
     data: latestSelectedThreadMessages,
     error: latestSelectedThreadMessagesError,
     isLoading: isLatestSelectedThreadMessagesLoading,
     revalidate: revalidateLatestSelectedThreadMessages,
-  } = usePromise(readLatestThreadMessages, [effectiveSelectedThreadId ?? ""], {
-    execute: isShowingDetail && Boolean(effectiveSelectedThreadId),
-  });
+  } = usePromise(
+    async (threadId: string) => {
+      const signal = previewAbortable.current?.signal;
+      // Rows the arrow keys pass through never start a Codex process.
+      await delay(150, undefined, { signal });
+      return readLatestThreadMessages(threadId, signal);
+    },
+    [effectiveSelectedThreadId ?? ""],
+    {
+      execute: isShowingDetail && Boolean(effectiveSelectedThreadId),
+      abortable: previewAbortable,
+    },
+  );
+  // Archiving or renaming changes transcript hits too, so reloads also rerun
+  // the active transcript search instead of keeping hits that moved.
+  const revalidateThreadsAndSearch = async () => {
+    if (shouldSearchTranscripts) {
+      void revalidateTranscriptSearch();
+    }
+    return revalidateThreads();
+  };
   const refreshThreadsAndSelectedMessages = async () => {
-    const threadsResult = await revalidateThreads();
+    const threadsResult = await revalidateThreadsAndSearch();
     if (isShowingDetail && effectiveSelectedThreadId) {
       const messagesResult = await revalidateLatestSelectedThreadMessages();
       return threadsResult ?? messagesResult;
@@ -470,7 +494,7 @@ export default function CodexThreadsCommand() {
                         current.filter((id) => id !== threadId),
                       );
                     }}
-                    onThreadsChanged={revalidateThreads}
+                    onThreadsChanged={revalidateThreadsAndSearch}
                     onToggleDetail={() => {
                       setIsShowingDetail(!isShowingDetail);
                     }}
@@ -1013,9 +1037,12 @@ function ThreadSummaryDetail({
   thread: CodexThread;
   onRenameSuccess: () => Promise<unknown> | void;
 }) {
+  const summaryAbortable = useRef<AbortController>(undefined);
   const { data, error, isLoading, revalidate } = usePromise(
-    summarizeCodexThread,
+    (summaryThread: CodexThread) =>
+      summarizeCodexThread(summaryThread, summaryAbortable.current?.signal),
     [thread],
+    { abortable: summaryAbortable },
   );
   const summaryDocument = data
     ? buildThreadSummaryDocument(thread, data)

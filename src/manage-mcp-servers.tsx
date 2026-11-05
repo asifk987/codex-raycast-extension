@@ -391,9 +391,11 @@ function McpServerDetail({
               text={
                 runtimeDetailsState === "loading"
                   ? "Loading from Codex"
-                  : record.runtimeAvailable
-                    ? "None reported"
-                    : "Unavailable"
+                  : record.toolsError
+                    ? `Discovery failed: ${record.toolsError}`
+                    : record.runtimeAvailable
+                      ? "None reported"
+                      : "Unavailable"
               }
             />
           )}
@@ -674,7 +676,7 @@ function SafeConfigurationDetail({ record }: { record: McpServerRecord }) {
   );
   return (
     <Detail
-      markdown={`# ${record.name}\n\nSecret values are redacted.\n\n~~~json\n${safeConfiguration}\n~~~`}
+      markdown={`# ${record.name}\n\nRecognized secret values are redacted. Review before sharing.\n\n~~~json\n${safeConfiguration}\n~~~`}
     />
   );
 }

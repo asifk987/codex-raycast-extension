@@ -31,6 +31,7 @@ export type McpServerRecord = {
   runtimeStatus: McpServerRuntimeStatus | null;
   pluginId: string | null;
   tools: string[];
+  toolsError: string | null;
   resourceCount: number;
   resourceTemplateCount: number;
   runtimeAvailable: boolean;
@@ -134,6 +135,7 @@ export function joinMcpServers(
         runtimeStatus: status?.runtimeStatus ?? null,
         pluginId: status?.pluginId ?? null,
         tools: status ? Object.keys(status.tools).sort() : [],
+        toolsError: status?.toolsError ?? null,
         resourceCount: status?.resources.length ?? 0,
         resourceTemplateCount: status?.resourceTemplates.length ?? 0,
         runtimeAvailable: Boolean(status),
@@ -500,9 +502,19 @@ function parseKeyValueLines(value: string): Record<string, string> {
   );
 }
 
+const redactedValue = "••••••••";
+const secretNamePattern =
+  /(secret|token|password|credential|authorization|api[_-]?key)/i;
+const urlSchemePattern = /^[a-z][a-z0-9+.-]*:\/\//i;
+
 function redactValue(value: unknown, parentKey = ""): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, parentKey));
+    return parentKey === "args"
+      ? redactArguments(value)
+      : value.map((item) => redactValue(item, parentKey));
+  }
+  if (typeof value === "string") {
+    return parentKey === "url" ? redactUrl(value) : value;
   }
   const record = asRecord(value);
   if (!record) {
@@ -517,15 +529,79 @@ function redactValue(value: unknown, parentKey = ""): unknown {
         parentKey === "http_headers" ||
         (parentKey !== "env_http_headers" &&
           lowerKey !== "bearer_token_env_var" &&
-          /(secret|token|password|credential|authorization|api[_-]?key)/i.test(
-            lowerKey,
-          ))
+          secretNamePattern.test(lowerKey))
       ) {
-        return [key, "••••••••"];
+        return [key, redactedValue];
       }
       return [key, redactValue(entry, lowerKey)];
     }),
   );
+}
+
+// Arguments carry secrets after a flag (`--token value`, `--header "Name: v"`,
+// docker `-e NAME=value`), inline (`--token=value`, `Authorization: Bearer v`),
+// or inside URLs.
+function redactArguments(args: unknown[]): unknown[] {
+  return args.map((arg, index) => {
+    if (typeof arg !== "string") {
+      return redactValue(arg);
+    }
+    const previous = args[index - 1];
+    const followsSecretFlag =
+      typeof previous === "string" &&
+      /^-{1,2}[^=]+$/.test(previous) &&
+      isSecretArgumentName(previous);
+    if (followsSecretFlag && !arg.startsWith("-")) {
+      return redactedValue;
+    }
+    const separator = arg.indexOf("=");
+    if ((previous === "-e" || previous === "--env") && separator > 0) {
+      return `${arg.slice(0, separator + 1)}${redactedValue}`;
+    }
+    const assignment = /^(-{0,2}[\w.-]+\s*[=:]\s*)(\S.*)$/.exec(arg);
+    if (!assignment || urlSchemePattern.test(arg)) {
+      return redactUrl(arg);
+    }
+    const [, name, entry] = assignment;
+    return isSecretArgumentName(name)
+      ? `${name}${redactedValue}`
+      : `${name}${redactUrl(entry)}`;
+  });
+}
+
+// A header flag carries a whole `Name: value` header, so it counts as secret.
+function isSecretArgumentName(name: string): boolean {
+  return secretNamePattern.test(name) || /header/i.test(name);
+}
+
+// Keeps the scheme, host, and path. Masks credentials, query values, and the
+// fragment, which is where URLs usually carry tokens.
+function redactUrl(value: string): string {
+  if (!urlSchemePattern.test(value)) {
+    return value;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  if (!url.username && !url.password && !url.search && !url.hash) {
+    return value;
+  }
+
+  const query = Array.from(
+    url.searchParams.keys(),
+    (name) => `${name}=${redactedValue}`,
+  ).join("&");
+  return [
+    `${url.protocol}//`,
+    url.username || url.password ? `${redactedValue}@` : "",
+    url.host,
+    url.pathname,
+    query ? `?${query}` : "",
+    url.hash ? `#${redactedValue}` : "",
+  ].join("");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

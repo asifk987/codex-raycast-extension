@@ -81,7 +81,7 @@ Open Codex in the ChatGPT desktop app.
 The extension detects the `codex` binary automatically by searching:
 
 1. The **Codex CLI Path** preference, if set
-2. The ChatGPT app bundle (`/Applications/ChatGPT.app/Contents/Resources/codex`)
+2. The ChatGPT app bundle (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`, or `Contents/Resources/codex` in older app versions)
 3. `~/.codex/packages/standalone/current/codex` (standalone installer)
 4. `/opt/homebrew/bin/codex` (Homebrew on Apple Silicon)
 5. `/usr/local/bin/codex` (Homebrew on Intel)

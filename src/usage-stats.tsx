@@ -58,17 +58,30 @@ function RateLimitsSection({
   onRefresh: () => Promise<CodexUsage | undefined>;
 }) {
   const rows = buildRateLimitRows(data);
+  // Codex says this permission overrides the percentages, so a blocked
+  // account must not look like it has healthy quota left.
+  const isUsageBlocked = data.rateLimits.ordinaryUsageAllowed === false;
 
   return (
     <List.Section title="Rate Limits" subtitle={getPlanName(data)}>
+      {isUsageBlocked ? (
+        <List.Item
+          id="included-usage-blocked"
+          title="Included Usage Blocked"
+          subtitle="Codex reports this account cannot use included usage"
+          icon={{ source: Icon.Warning, tintColor: Color.Red }}
+          actions={<UsageActions onRefresh={onRefresh} />}
+        />
+      ) : null}
       {rows.map((row) => {
         const remaining = Math.max(
           0,
           Math.min(100, Math.round(100 - row.window.usedPercent)),
         );
-        const color = row.isSpark
-          ? Color.SecondaryText
-          : getRemainingColor(remaining);
+        const color =
+          row.isSpark || isUsageBlocked
+            ? Color.SecondaryText
+            : getRemainingColor(remaining);
 
         return (
           <List.Item
@@ -144,21 +157,21 @@ function UsageSection({
   data: CodexUsage;
   onRefresh: () => Promise<CodexUsage | undefined>;
 }) {
-  const buckets = data.tokenUsage.dailyUsageBuckets ?? [];
+  // Null means Codex returned no daily data, which is not the same as zero.
+  const buckets = data.tokenUsage.dailyUsageBuckets;
   const summary = data.tokenUsage.summary;
-  const { todayTokens, lastSevenDaysTokens } =
-    calculateRecentTokenUsage(buckets);
+  const recentUsage = buckets ? calculateRecentTokenUsage(buckets) : null;
 
   const rows = [
     {
       id: "usage-today",
       title: "Today",
-      value: formatTokens(todayTokens),
+      value: formatTokens(recentUsage?.todayTokens ?? null),
     },
     {
       id: "usage-week",
       title: "Last 7 Days",
-      value: formatTokens(lastSevenDaysTokens),
+      value: formatTokens(recentUsage?.lastSevenDaysTokens ?? null),
     },
     {
       id: "usage-lifetime",

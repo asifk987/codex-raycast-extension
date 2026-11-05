@@ -11,7 +11,7 @@
 - Added Browse Child Threads for subagents, automations, and maintenance threads
 - Added Copy Last User Turn, Copy Last Assistant Turn, and Paste Summary actions
 - Improved large-thread summaries, copying, and exports, with updated AI models
-- Added Ghostty and iTerm2 support for terminal resume, detection for standalone Codex installs, and fixes for thread launching
+- Added Ghostty and iTerm2 support for terminal resume, detection for standalone Codex installs and current ChatGPT app versions, and fixes for thread launching
 
 ## [Modernized Thread Management] - 2026-07-25
 

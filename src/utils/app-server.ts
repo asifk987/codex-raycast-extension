@@ -187,6 +187,7 @@ export type CodexMcpServerStatus = {
   runtimeStatus?: McpServerRuntimeStatus | null;
   pluginId?: string | null;
   tools: Record<string, { name: string; title?: string | null }>;
+  toolsError?: string | null;
   resources: Array<{ name: string; uri: string }>;
   resourceTemplates: Array<{ name: string; uriTemplate: string }>;
   serverInfo: {
@@ -280,6 +281,7 @@ export type CodexRateLimit = {
 type CodexRateLimitsResponse = {
   rateLimits: CodexRateLimit;
   rateLimitsByLimitId: Record<string, CodexRateLimit | undefined> | null;
+  ordinaryUsageAllowed?: boolean | null;
   rateLimitResetCredits: {
     availableCount: number;
     credits: Array<{
@@ -1212,6 +1214,7 @@ export async function forkThread(
 
 export async function readLatestThreadMessages(
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<CodexThreadLatestMessages> {
   return withCodexAppServerSession(async (session) => {
     const turns = await listThreadTurnSummaries(session, threadId, {
@@ -1225,7 +1228,7 @@ export async function readLatestThreadMessages(
     });
 
     return extractLatestThreadMessages(turns);
-  });
+  }, signal);
 }
 
 function isAppServerThreadTurn(value: unknown): value is CodexThreadTurn {
@@ -1274,6 +1277,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function readThreadConversation(
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<CodexThreadConversation> {
   return withCodexAppServerSession(async (session) => {
     const turns = await listThreadTurnSummaries(session, threadId, {
@@ -1282,7 +1286,7 @@ export async function readThreadConversation(
     });
 
     return extractThreadConversation(turns);
-  });
+  }, signal);
 }
 
 export async function setThreadName(

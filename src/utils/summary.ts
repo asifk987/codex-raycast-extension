@@ -1,4 +1,5 @@
 import { AI, environment } from "@raycast/api";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   type CodexThread,
   type CodexThreadConversationMessage,
@@ -67,20 +68,27 @@ type PreparedThreadTranscript = {
 
 export async function summarizeCodexThread(
   thread: CodexThread,
+  signal?: AbortSignal,
 ): Promise<CodexThreadSummary> {
   ensureAiAccess();
 
-  const preparedTranscript = await prepareThreadTranscript(thread);
+  const preparedTranscript = await prepareThreadTranscript(thread, signal);
   const chunkSummaries =
     preparedTranscript.chunks.length === 1
       ? []
-      : await summarizeTranscriptChunks(thread, preparedTranscript.chunks);
+      : await summarizeTranscriptChunks(
+          thread,
+          preparedTranscript.chunks,
+          signal,
+        );
   const source =
     preparedTranscript.chunks.length === 1
       ? preparedTranscript.chunks[0]
       : chunkSummaries.join("\n\n---\n\n");
   const rawSummary = await askSummaryAi(
     buildFinalSummaryPrompt(thread, source, preparedTranscript.chunks.length),
+    summaryModel,
+    signal,
   );
   return parseThreadSummaryResponse(rawSummary, thread);
 }
@@ -143,6 +151,7 @@ async function processChunks(
     total: number,
   ) => string,
   model: AI.Model = summaryModel,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const total = chunks.length;
   const results: string[] = [];
@@ -151,6 +160,7 @@ async function processChunks(
     const result = await askSummaryAi(
       buildPrompt(thread, chunk, index + 1, total),
       model,
+      signal,
     );
     results.push(result.trim());
   }
@@ -161,8 +171,15 @@ async function processChunks(
 function summarizeTranscriptChunks(
   thread: CodexThread,
   chunks: string[],
+  signal?: AbortSignal,
 ): Promise<string[]> {
-  return processChunks(thread, chunks, buildChunkSummaryPrompt);
+  return processChunks(
+    thread,
+    chunks,
+    buildChunkSummaryPrompt,
+    summaryModel,
+    signal,
+  );
 }
 
 function summarizeTitleSignalChunks(
@@ -175,14 +192,18 @@ function summarizeTitleSignalChunks(
 async function askSummaryAi(
   prompt: string,
   model: AI.Model = summaryModel,
+  signal?: AbortSignal,
 ): Promise<string> {
   for (let attempt = 0; ; attempt += 1) {
+    signal?.throwIfAborted();
     try {
       return await AI.ask(prompt, {
         creativity: "low",
         model,
+        signal,
       });
     } catch (error) {
+      signal?.throwIfAborted();
       const delayMs = rateLimitRetryDelaysMs[attempt];
       if (!isRaycastAiRateLimitError(error)) {
         throw error;
@@ -194,7 +215,7 @@ async function askSummaryAi(
         );
       }
 
-      await wait(delayMs);
+      await delay(delayMs, undefined, { signal });
     }
   }
 }
@@ -205,10 +226,6 @@ function isRaycastAiRateLimitError(error: unknown): boolean {
     message.includes("HTTP Status: 429") ||
     message.toLowerCase().includes("rate limited")
   );
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildTitleSignalChunkPrompt(
@@ -367,8 +384,9 @@ function buildFinalSummaryPrompt(
 
 async function prepareThreadTranscript(
   thread: CodexThread,
+  signal?: AbortSignal,
 ): Promise<PreparedThreadTranscript> {
-  const conversation = await readThreadConversation(thread.id);
+  const conversation = await readThreadConversation(thread.id, signal);
   const messages = cleanConversationMessages(conversation.messages);
 
   if (messages.length === 0) {

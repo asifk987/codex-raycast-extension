@@ -9,10 +9,11 @@ const cliPathsModule = import(cliPathsModulePath) as Promise<
 const homeDirectory = "/Users/example";
 const standalonePath = `${homeDirectory}/.codex/packages/standalone/current/codex`;
 
-test("searches the bundled binary before the standalone install", async () => {
+test("searches the bundled binaries before the standalone install", async () => {
   const { buildCodexCliCandidatePaths } = await cliPathsModule;
 
   assert.deepEqual(buildCodexCliCandidatePaths(undefined, homeDirectory), [
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     standalonePath,
     "/opt/homebrew/bin/codex",
@@ -28,6 +29,7 @@ test("puts a configured path first", async () => {
     buildCodexCliCandidatePaths("/custom/codex", homeDirectory),
     [
       "/custom/codex",
+      "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
       "/Applications/ChatGPT.app/Contents/Resources/codex",
       standalonePath,
       "/opt/homebrew/bin/codex",
@@ -46,6 +48,7 @@ test("does not search a configured path twice", async () => {
 
   assert.deepEqual(candidatePaths, [
     standalonePath,
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     "/opt/homebrew/bin/codex",
     "/usr/local/bin/codex",

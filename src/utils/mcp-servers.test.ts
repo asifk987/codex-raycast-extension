@@ -204,6 +204,46 @@ test("redacts secret values while retaining safe environment variable names", ()
   });
 });
 
+test("redacts credentials inside URLs and command arguments", () => {
+  const redacted = mcpServers.redactMcpServerConfig({
+    url: "https://user:pass@mcp.example.com/sse?api_key=url-secret&mode=full",
+    args: [
+      "-y",
+      "mcp-remote",
+      "https://mcp.example.com/mcp",
+      "--header",
+      "Cookie: session=header-secret",
+      "--header=Authorization: Bearer inline-flag-secret",
+      "--api-key",
+      "flag-secret",
+      "--token=inline-secret",
+      "Authorization: Bearer inline-header-secret",
+      "-e",
+      "NOTION_KEY=env-secret",
+      "postgresql://db-user:db-secret@localhost/app",
+    ],
+  });
+
+  assert.deepEqual(redacted, {
+    url: "https://••••••••@mcp.example.com/sse?api_key=••••••••&mode=••••••••",
+    args: [
+      "-y",
+      "mcp-remote",
+      "https://mcp.example.com/mcp",
+      "--header",
+      "••••••••",
+      "--header=••••••••",
+      "--api-key",
+      "••••••••",
+      "--token=••••••••",
+      "Authorization: ••••••••",
+      "-e",
+      "NOTION_KEY=••••••••",
+      "postgresql://••••••••@localhost/app",
+    ],
+  });
+});
+
 test("builds all named mutations without changing unrelated or unknown fields", () => {
   const original = {
     existing: { command: "old", unknown: { keep: true } },
