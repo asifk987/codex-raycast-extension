@@ -114,38 +114,60 @@ function ResetsSection({
   const resetCredits = data.rateLimits.rateLimitResetCredits;
   if (!resetCredits) return null;
 
-  const availableCredit = resetCredits.credits?.find(
-    (credit) => credit.status === "available",
-  );
   const count = resetCredits.availableCount;
+  const availableCredits = (resetCredits.credits ?? [])
+    .filter((credit) => credit.status === "available")
+    .sort(
+      (a, b) =>
+        (a.expiresAt ?? Number.POSITIVE_INFINITY) -
+        (b.expiresAt ?? Number.POSITIVE_INFINITY),
+    );
 
   return (
-    <List.Section title="Resets">
-      <List.Item
-        id="reset-credits"
-        title={availableCredit?.title ?? "Full Resets"}
-        subtitle="Rate limit reset credit"
-        icon={{
-          source: Icon.ArrowCounterClockwise,
-          tintColor: count > 0 ? Color.Green : Color.SecondaryText,
-        }}
-        accessories={[
-          ...(availableCredit?.expiresAt
-            ? [
-                {
-                  text: `Expires ${formatExpirationDate(availableCredit.expiresAt)}`,
-                },
-              ]
-            : []),
-          {
-            tag: {
-              value: `${count} available`,
-              color: count > 0 ? Color.Green : Color.SecondaryText,
+    <List.Section title="Resets" subtitle={`${count} available`}>
+      {availableCredits.length > 0 ? (
+        availableCredits.map((credit, index) => (
+          <List.Item
+            key={`reset-credit-${index}`}
+            id={`reset-credit-${index}`}
+            title={credit.title ?? "Full Reset"}
+            subtitle="Rate limit reset credit"
+            icon={{
+              source: Icon.ArrowCounterClockwise,
+              tintColor: Color.Green,
+            }}
+            accessories={
+              credit.expiresAt
+                ? [
+                    {
+                      text: `Expires ${formatExpirationDate(credit.expiresAt)}`,
+                    },
+                  ]
+                : []
+            }
+            actions={<UsageActions onRefresh={onRefresh} />}
+          />
+        ))
+      ) : (
+        <List.Item
+          id="reset-credits"
+          title="Full Resets"
+          subtitle="Rate limit reset credit"
+          icon={{
+            source: Icon.ArrowCounterClockwise,
+            tintColor: count > 0 ? Color.Green : Color.SecondaryText,
+          }}
+          accessories={[
+            {
+              tag: {
+                value: `${count} available`,
+                color: count > 0 ? Color.Green : Color.SecondaryText,
+              },
             },
-          },
-        ]}
-        actions={<UsageActions onRefresh={onRefresh} />}
-      />
+          ]}
+          actions={<UsageActions onRefresh={onRefresh} />}
+        />
+      )}
     </List.Section>
   );
 }

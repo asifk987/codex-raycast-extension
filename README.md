@@ -31,7 +31,7 @@ Browse the projects configured in the Codex desktop app, including their pinned 
 View your Codex rate limits and token usage.
 
 - Rate limits per plan window, with percent used and the next reset time.
-- Available rate limit reset credits, when your plan includes them.
+- Each available rate limit reset credit with its own expiry date, when your plan includes them.
 - Token usage for today, the last 7 days, and all time, plus your current daily streak. Usage comes from Codex's account statistics and can take time to reflect recent activity.
 - Refresh on demand, or jump straight to Codex.
 
@@ -44,8 +44,9 @@ Browse active and archived Codex threads. Search recent names, working directori
 - **Resume** in the Codex app, or in your terminal with the `codex resume` command. Resume in Terminal opens the app set in the **Terminal App** preference.
 - **Browse Child Threads** to see what a thread started: subagents, scheduled automations, and the review, compaction, memory, and Guardian threads Codex runs on its own.
 - **Summarize** a thread, then copy or paste the result, or **auto-rename** it with Raycast AI. You can also rename the last 5 to 50 threads in one pass.
-- **Fork**, **archive**, and **unarchive** threads.
+- **Fork**, **archive**, **unarchive**, or permanently **delete** threads.
 - **Export** a thread to Markdown, saved to your Downloads folder.
+- **Show Matches** during a transcript search lists every place the term appears in a thread's messages, and opens that part of the conversation.
 - **Copy** a thread's ID, resume command, working directory, deeplink, or last message.
 
 ### New Thread
@@ -87,7 +88,7 @@ Open Codex in the ChatGPT desktop app.
 
 | Preference                    | Description                                                                                                                       |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Default Mode**              | Which mode new threads open in: Codex, Work, or Chat. Working directory settings apply to Codex and Work.                          |
+| **Default Mode**              | Which mode new threads open in: Codex, Work, or Chat. Working directory settings apply to Codex and Work.                         |
 | **Default Working Directory** | Default directory for all new Codex threads, used when you don't pick a folder.                                                   |
 | **Working Directory Root**    | Folder whose direct subfolders become the working directory choices in New Thread with Prompt (for example, ~/projects or ~/dev). |
 | **Terminal App**              | Terminal that Resume in Terminal opens: Terminal, Ghostty (1.3 or later), or iTerm2.                                              |

@@ -25,7 +25,10 @@ const threadSearchFirstPageSize = 10;
 const threadPreviewPageSize = 5;
 const threadDescendantsPageSize = 50;
 const threadPreviewMaxPages = 3;
+const threadOccurrencesPageSize = 50;
+const threadOccurrencesMaxPages = 4;
 const defaultRequestTimeoutMs = 30_000;
+const sharedSessionIdleMs = 120_000;
 const threadPreviewMaxCharacters = 600;
 const threadReadConcurrency = 12;
 
@@ -137,6 +140,18 @@ type ThreadSearchResponse = {
   }>;
   nextCursor: string | null;
   backwardsCursor: string | null;
+};
+
+type ThreadSearchOccurrencesParams = {
+  threadId: string;
+  searchTerm: string;
+  cursor?: string | null;
+  limit?: number | null;
+};
+
+type ThreadSearchOccurrencesResponse = {
+  data: CodexThreadSearchOccurrence[];
+  nextCursor: string | null;
 };
 
 type ThreadResponse = {
@@ -320,6 +335,10 @@ type AppServerMethods = {
     params: ThreadSearchParams;
     result: ThreadSearchResponse;
   };
+  "thread/searchOccurrences": {
+    params: ThreadSearchOccurrencesParams;
+    result: ThreadSearchOccurrencesResponse;
+  };
   "thread/read": { params: ThreadReadParams; result: ThreadResponse };
   "thread/turns/list": {
     params: ThreadTurnsListParams;
@@ -331,6 +350,10 @@ type AppServerMethods = {
   };
   "thread/fork": { params: ThreadForkParams; result: ThreadResponse };
   "thread/archive": {
+    params: ThreadIdParams;
+    result: EmptyResponse;
+  };
+  "thread/delete": {
     params: ThreadIdParams;
     result: EmptyResponse;
   };
@@ -458,6 +481,15 @@ export type { CodexThreadLatestMessages } from "./messages";
 export type CodexThreadSearchHit = {
   thread: CodexThread;
   snippet: string | null;
+};
+
+export type CodexThreadSearchOccurrence = {
+  turnId: string;
+  itemId: string;
+  snippet: string;
+  // UTF-16 offsets into snippet, end exclusive.
+  snippetMatchRange: { start: number; end: number };
+  turnCursor: string;
 };
 
 export type CodexThreadConversationMessage = {
@@ -597,6 +629,10 @@ class CodexAppServerSession {
       this.rejectPendingRequests(error);
       void this.dispose();
     });
+  }
+
+  get isRunning(): boolean {
+    return !this.hasExited;
   }
 
   private rejectPendingRequests(error: Error) {
@@ -822,6 +858,77 @@ async function withCodexAppServerSession<T>(
     signal?.removeEventListener("abort", onAbort);
     await session.dispose();
   }
+}
+
+export type CodexSharedSession = {
+  run<T>(
+    work: (session: CodexAppServerSession) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T>;
+  dispose(): void;
+};
+
+export function createCodexSharedSession(): CodexSharedSession {
+  let current: CodexAppServerSession | undefined;
+  let opening: Promise<CodexAppServerSession> | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeRuns = 0;
+  let isClosed = false;
+
+  const open = async () => {
+    const session = new CodexAppServerSession(await resolveCodexCliPath());
+    try {
+      await session.initialize();
+    } catch (error) {
+      void session.dispose();
+      throw error;
+    }
+    if (isClosed) {
+      void session.dispose();
+      throw new Error("Codex session is closed");
+    }
+    current = session;
+    return session;
+  };
+
+  // Concurrent runs share one open; a failed open is not cached.
+  const getSession = async () => {
+    if (current?.isRunning) return current;
+    current = undefined;
+    opening ??= open().finally(() => {
+      opening = undefined;
+    });
+    return opening;
+  };
+
+  return {
+    async run(work, signal) {
+      if (isClosed) throw new Error("Codex session is closed");
+      signal?.throwIfAborted();
+      clearTimeout(idleTimer);
+      activeRuns += 1;
+      try {
+        // An abort only discards the result; the shared process keeps running.
+        const result = await work(await getSession());
+        signal?.throwIfAborted();
+        return result;
+      } finally {
+        activeRuns -= 1;
+        if (activeRuns === 0 && !isClosed) {
+          idleTimer = setTimeout(() => {
+            void current?.dispose();
+            current = undefined;
+          }, sharedSessionIdleMs);
+        }
+      }
+    },
+    dispose() {
+      isClosed = true;
+      clearTimeout(idleTimer);
+      void current?.dispose();
+      current = undefined;
+    },
+  };
 }
 
 let codexHomeResolution: Promise<string> | undefined;
@@ -1204,6 +1311,47 @@ function normalizeThreadSearchHits(
   return Array.from(hitsByThreadId.values()).slice(0, maxResults);
 }
 
+export async function searchThreadOccurrences(
+  threadId: string,
+  searchTerm: string,
+  signal?: AbortSignal,
+  shared?: CodexSharedSession,
+): Promise<CodexThreadSearchOccurrence[]> {
+  const work = async (session: CodexAppServerSession) =>
+    collectPaginatedEntries({
+      requestPage: (cursor) => {
+        signal?.throwIfAborted();
+        return session.request("thread/searchOccurrences", {
+          threadId,
+          searchTerm,
+          cursor,
+          limit: threadOccurrencesPageSize,
+        });
+      },
+      isEntry: isThreadSearchOccurrence,
+      description: "thread/searchOccurrences",
+      maxPages: threadOccurrencesMaxPages,
+    });
+  return shared
+    ? shared.run(work, signal)
+    : withCodexAppServerSession(work, signal);
+}
+
+function isThreadSearchOccurrence(
+  value: unknown,
+): value is CodexThreadSearchOccurrence {
+  return (
+    isRecord(value) &&
+    typeof value.turnId === "string" &&
+    typeof value.itemId === "string" &&
+    typeof value.snippet === "string" &&
+    typeof value.turnCursor === "string" &&
+    isRecord(value.snippetMatchRange) &&
+    typeof value.snippetMatchRange.start === "number" &&
+    typeof value.snippetMatchRange.end === "number"
+  );
+}
+
 function normalizeListedThread(thread: CodexThread): CodexThread {
   return {
     id: thread.id,
@@ -1276,8 +1424,9 @@ export async function forkThread(
 export async function readLatestThreadMessages(
   threadId: string,
   signal?: AbortSignal,
+  shared?: CodexSharedSession,
 ): Promise<CodexThreadLatestMessages> {
-  return withCodexAppServerSession(async (session) => {
+  const work = async (session: CodexAppServerSession) => {
     const turns = await listThreadTurnSummaries(session, threadId, {
       limit: threadPreviewPageSize,
       maxPages: threadPreviewMaxPages,
@@ -1289,7 +1438,10 @@ export async function readLatestThreadMessages(
     });
 
     return extractLatestThreadMessages(turns);
-  }, signal);
+  };
+  return shared
+    ? shared.run(work, signal)
+    : withCodexAppServerSession(work, signal);
 }
 
 function isAppServerThreadTurn(value: unknown): value is CodexThreadTurn {
@@ -1347,6 +1499,30 @@ export async function readThreadConversation(
     });
 
     return extractThreadConversation(turns);
+  }, signal);
+}
+
+export async function readThreadTurnMessages(
+  threadId: string,
+  turnCursor: string,
+  signal?: AbortSignal,
+): Promise<CodexThreadConversationMessage[]> {
+  return withCodexAppServerSession(async (session) => {
+    const response = await session.request("thread/turns/list", {
+      threadId,
+      cursor: turnCursor,
+      limit: 1,
+      sortDirection: "asc",
+      itemsView: "summary",
+    });
+    if (!isRecord(response) || !Array.isArray(response.data)) {
+      throw new Error("Received an invalid thread/turns/list response");
+    }
+
+    const turns = response.data
+      .filter(isAppServerThreadTurnSummary)
+      .slice(0, 1);
+    return extractThreadConversation(turns).messages;
   }, signal);
 }
 
@@ -1451,6 +1627,14 @@ async function setArchivedThreadName(
 export async function archiveThread(threadId: string): Promise<void> {
   await withCodexAppServerSession(async (session) => {
     await session.request("thread/archive", {
+      threadId,
+    });
+  });
+}
+
+export async function deleteThread(threadId: string): Promise<void> {
+  await withCodexAppServerSession(async (session) => {
+    await session.request("thread/delete", {
       threadId,
     });
   });

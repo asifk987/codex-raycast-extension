@@ -1,6 +1,7 @@
 import {
   Action,
   ActionPanel,
+  Alert,
   Clipboard,
   Color,
   confirmAlert,
@@ -22,7 +23,6 @@ import {
   useForm,
   usePromise,
 } from "@raycast/utils";
-import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -31,11 +31,16 @@ import {
   type CodexThread,
   type CodexThreadLatestMessages,
   type CodexThreadSearchHit,
+  type CodexSharedSession,
+  type CodexThreadSearchOccurrence,
+  createCodexSharedSession,
+  deleteThread,
   forkThread,
   getCodexHome,
   listThreads,
   readLatestThreadMessages,
   readThreads,
+  searchThreadOccurrences,
   searchThreads,
   type SetThreadNameResult,
   setThreadName,
@@ -98,6 +103,7 @@ import {
 import { openTerminalAtPathWithCommand } from "./utils/terminal";
 import { buildCodexThreadUrl, openCodexThread } from "./utils/launch";
 import { ThreadSubagentsList } from "./thread-subagents";
+import { buildMatchMarkdown, ThreadMatchesList } from "./thread-matches";
 import { RefreshAction, ToggleDetailAction } from "./thread-actions";
 
 type ThreadScope = "active" | "archived";
@@ -113,6 +119,7 @@ type ThreadResultSection = {
 
 const autoRenameBatchSizes = [5, 10, 25, 50] as const;
 const latestTurnPreviewMaxLength = 1500;
+const panelMatchLimit = 3;
 const allProjectsFilterValue = "__all_projects__";
 const emptyThreads: CodexThread[] = [];
 const emptyThreadIds: string[] = [];
@@ -145,8 +152,22 @@ export default function CodexThreadsCommand() {
     useCachedState<string | null>("codex-threads-project-filter-cwd", null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
-  const [unmountController] = useState(() => new AbortController());
-  useEffect(() => () => unmountController.abort(), [unmountController]);
+  // Dev mode mounts a command twice, so these are made inside the effect: a
+  // remount gets fresh ones instead of reusing ones the first cleanup closed.
+  const [unmountSignal, setUnmountSignal] = useState<AbortSignal>(
+    () => new AbortController().signal,
+  );
+  const [sharedSession, setSharedSession] = useState<CodexSharedSession>();
+  useEffect(() => {
+    const controller = new AbortController();
+    const session = createCodexSharedSession();
+    setUnmountSignal(controller.signal);
+    setSharedSession(session);
+    return () => {
+      controller.abort();
+      session.dispose();
+    };
+  }, []);
   useEffect(() => {
     removeLegacyThreadSearchCache();
   }, []);
@@ -342,6 +363,9 @@ export default function CodexThreadsCommand() {
       ? selectedThreadId
       : (displayedThreads[0]?.id ?? null);
   const previewAbortable = useRef<AbortController>(undefined);
+  const [previewMemory] = useState(
+    () => new Map<string, CodexThreadLatestMessages>(),
+  );
   const {
     data: latestSelectedThreadMessages,
     error: latestSelectedThreadMessagesError,
@@ -350,17 +374,72 @@ export default function CodexThreadsCommand() {
   } = usePromise(
     async (threadId: string) => {
       const signal = previewAbortable.current?.signal;
-      // Rows the arrow keys pass through never start a Codex process.
-      await delay(150, undefined, { signal });
-      return {
+      const messages = await readLatestThreadMessages(
         threadId,
-        ...(await readLatestThreadMessages(threadId, signal)),
-      };
+        signal,
+        sharedSession,
+      );
+      previewMemory.set(threadId, messages);
+      return { threadId, ...messages };
     },
     [effectiveSelectedThreadId ?? ""],
     {
       execute: isShowingDetail && Boolean(effectiveSelectedThreadId),
       abortable: previewAbortable,
+    },
+  );
+  // Reading nearby threads ahead keeps arrowing through the list instant.
+  useEffect(() => {
+    if (!isShowingDetail || !effectiveSelectedThreadId || !sharedSession) {
+      return;
+    }
+    const index = displayedThreads.findIndex(
+      (thread) => thread.id === effectiveSelectedThreadId,
+    );
+    for (const thread of displayedThreads.slice(
+      Math.max(0, index - 3),
+      index + 4,
+    )) {
+      if (
+        thread.id === effectiveSelectedThreadId ||
+        previewMemory.has(thread.id)
+      )
+        continue;
+      void readLatestThreadMessages(thread.id, undefined, sharedSession).then(
+        (messages) => previewMemory.set(thread.id, messages),
+        () => undefined,
+      );
+    }
+  }, [
+    displayedThreads,
+    effectiveSelectedThreadId,
+    isShowingDetail,
+    previewMemory,
+    sharedSession,
+  ]);
+  const matchesAbortable = useRef<AbortController>(undefined);
+  const { data: selectedThreadMatches } = usePromise(
+    async (threadId: string, term: string) => {
+      const signal = matchesAbortable.current?.signal;
+      return {
+        threadId,
+        term,
+        occurrences: await searchThreadOccurrences(
+          threadId,
+          term,
+          signal,
+          sharedSession,
+        ),
+      };
+    },
+    [effectiveSelectedThreadId ?? "", trimmedSearchText],
+    {
+      execute:
+        isShowingDetail &&
+        shouldSearchTranscripts &&
+        Boolean(effectiveSelectedThreadId),
+      abortable: matchesAbortable,
+      failureToastOptions: { title: "Couldn't load matches" },
     },
   );
   // Archiving or renaming changes transcript hits too, so reloads also rerun
@@ -457,6 +536,16 @@ export default function CodexThreadsCommand() {
               isSelected && latestSelectedThreadMessages?.threadId === thread.id
                 ? latestSelectedThreadMessages
                 : undefined;
+            // The panel shows a remembered turn at once; copy actions wait for
+            // this visit's read so they never copy an older turn.
+            const rememberedMessages = isSelected
+              ? previewMemory.get(thread.id)
+              : undefined;
+            const selectedMatches =
+              selectedThreadMatches?.threadId === thread.id &&
+              selectedThreadMatches.term === trimmedSearchText
+                ? selectedThreadMatches.occurrences
+                : undefined;
 
             const displayTitle = getThreadDisplayTitle(thread);
             return (
@@ -478,9 +567,13 @@ export default function CodexThreadsCommand() {
                         thread,
                         threadChildCounts,
                         match,
-                        selectedLatestMessages,
-                        isLatestSelectedThreadMessagesLoading,
-                        latestSelectedThreadMessagesError,
+                        selectedMatches,
+                        rememberedMessages,
+                        isLatestSelectedThreadMessagesLoading &&
+                          !rememberedMessages,
+                        rememberedMessages
+                          ? undefined
+                          : latestSelectedThreadMessagesError,
                       )
                     : undefined
                 }
@@ -498,12 +591,15 @@ export default function CodexThreadsCommand() {
                           : [...current, threadId],
                       );
                     }}
-                    onThreadArchived={(threadId) => {
+                    onThreadRemoved={(threadId) => {
                       setForkedThreadIds((current) =>
                         current.filter((id) => id !== threadId),
                       );
                     }}
                     onThreadsChanged={revalidateThreadsAndSearch}
+                    transcriptSearchTerm={
+                      shouldSearchTranscripts ? trimmedSearchText : undefined
+                    }
                     onToggleDetail={() => {
                       setIsShowingDetail(!isShowingDetail);
                     }}
@@ -511,7 +607,7 @@ export default function CodexThreadsCommand() {
                       setShowChildThreads(!showChildThreads);
                     }}
                     autoRenameCandidates={displayedThreads}
-                    autoRenameSignal={unmountController.signal}
+                    autoRenameSignal={unmountSignal}
                     projectFilter={projectFilter}
                     thread={thread}
                     latestMessages={selectedLatestMessages}
@@ -703,7 +799,7 @@ function ThreadActions({
   showChildThreads,
   onArchiveFilterChange,
   onForkCreated,
-  onThreadArchived,
+  onThreadRemoved,
   onRefresh,
   onThreadsChanged,
   onToggleDetail,
@@ -713,13 +809,14 @@ function ThreadActions({
   projectFilter,
   thread,
   latestMessages,
+  transcriptSearchTerm,
 }: {
   archived: boolean;
   isShowingDetail: boolean;
   showChildThreads: boolean;
   onArchiveFilterChange: (scope: ThreadScope) => Promise<void> | void;
   onForkCreated: (threadId: string) => void;
-  onThreadArchived: (threadId: string) => void;
+  onThreadRemoved: (threadId: string) => void;
   onRefresh: () => Promise<unknown>;
   onThreadsChanged: () => Promise<unknown> | void;
   onToggleDetail: () => void;
@@ -729,6 +826,7 @@ function ThreadActions({
   projectFilter: WorkingDirectoryFilter;
   thread: CodexThread;
   latestMessages?: CodexThreadLatestMessages;
+  transcriptSearchTerm?: string;
 }) {
   return (
     <ActionPanel>
@@ -752,6 +850,19 @@ function ThreadActions({
           await resumeThreadInTerminal(thread);
         }}
       />
+      {transcriptSearchTerm ? (
+        <Action.Push
+          title="Show Matches"
+          icon={Icon.MagnifyingGlass}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
+          target={
+            <ThreadMatchesList
+              thread={thread}
+              searchTerm={transcriptSearchTerm}
+            />
+          }
+        />
+      ) : null}
       <ToggleDetailAction
         isShowingDetail={isShowingDetail}
         onToggleDetail={onToggleDetail}
@@ -880,12 +991,25 @@ function ThreadActions({
               });
 
               if (archivedThread) {
-                onThreadArchived(archivedThread.id);
+                onThreadRemoved(archivedThread.id);
                 await onThreadsChanged();
               }
             }}
           />
         )}
+        <Action
+          title="Delete Thread"
+          icon={Icon.Trash}
+          style={Action.Style.Destructive}
+          shortcut={Keyboard.Shortcut.Common.Remove}
+          onAction={async () => {
+            await deleteThreadWithConfirmation(
+              thread,
+              onThreadRemoved,
+              onThreadsChanged,
+            );
+          }}
+        />
         <ActionPanel.Submenu title="Bulk Auto Rename" icon={Icon.TextCursor}>
           {autoRenameBatchSizes.map((batchSize) => (
             <Action
@@ -1175,6 +1299,35 @@ async function renameThreadWithFeedback(
     toast.title = "Rename Failed";
     toast.message = getErrorMessage(error);
     return false;
+  }
+}
+
+async function deleteThreadWithConfirmation(
+  thread: CodexThread,
+  onThreadRemoved: (threadId: string) => void,
+  onThreadsChanged: () => Promise<unknown> | void,
+) {
+  const confirmed = await confirmAlert({
+    title: "Delete Thread?",
+    message: `"${truncate(getThreadDisplayTitle(thread), 80)}" and its history will be permanently deleted from Codex. This can't be undone.`,
+    primaryAction: { title: "Delete", style: Alert.ActionStyle.Destructive },
+  });
+  if (!confirmed) return;
+
+  const deleted = await runThreadMutation(
+    "Deleting Thread",
+    "Thread Deleted",
+    async () => {
+      await deleteThread(thread.id);
+      return thread;
+    },
+    getThreadToastLabel,
+    { failureTitle: "Couldn't delete thread" },
+  );
+
+  if (deleted) {
+    onThreadRemoved(thread.id);
+    await onThreadsChanged();
   }
 }
 
@@ -1543,6 +1696,7 @@ function buildThreadDetail(
   thread: CodexThread,
   childCounts: DirectChildCounts,
   match: CodexThreadSearchMatch | null,
+  matches: CodexThreadSearchOccurrence[] | undefined,
   latestMessages?: CodexThreadLatestMessages,
   isLatestMessagesLoading = false,
   latestMessagesError?: Error,
@@ -1554,9 +1708,12 @@ function buildThreadDetail(
     isLatestMessagesLoading,
     latestMessagesError,
   );
-  const searchMatchMarkdown = match?.snippet
-    ? `### Search Match\n\n> ${match.snippet}`
-    : null;
+  // Without matches in visible messages, the search excerpt still explains the hit.
+  const searchMatchMarkdown = matches?.length
+    ? buildPanelMatchesMarkdown(matches)
+    : match?.snippet
+      ? `### Search Match\n\n> ${match.snippet}`
+      : null;
   return (
     <List.Item.Detail
       markdown={[searchMatchMarkdown, latestTurnsMarkdown]
@@ -1632,6 +1789,21 @@ function buildThreadDetail(
       }
     />
   );
+}
+
+function buildPanelMatchesMarkdown(
+  matches: CodexThreadSearchOccurrence[],
+): string {
+  const remaining = matches.length - panelMatchLimit;
+  return [
+    `### ${matches.length} ${matches.length === 1 ? "match" : "matches"} in messages`,
+    ...matches.slice(0, panelMatchLimit).map(buildMatchMarkdown),
+    remaining > 0
+      ? `${remaining} more ${remaining === 1 ? "match" : "matches"}. Press ⌘⇧M to see all.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function formatActivityTimestamp(seconds: number): string {
