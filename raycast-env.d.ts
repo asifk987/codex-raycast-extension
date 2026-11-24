@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/ban-types */
 
 type ExtensionPreferences = {
-  /** New Thread Mode - Which mode to open new threads in (codex, work, or regular chat) */
+  /** Default Mode - Which mode new threads open in: Codex, Work, or Chat */
   "newThreadMode": "codex" | "work" | "chat",
   /** Default Working Directory - Default directory for all new Codex threads */
   "defaultProjectDirectory"?: string,
@@ -16,7 +16,7 @@ type ExtensionPreferences = {
   "projectsDirectory"?: string,
   /** Terminal App - Terminal opened by thread actions */
   "terminalApp": "terminal" | "ghostty" | "iterm",
-  /** Codex CLI Path - Path to the Codex CLI binary (leave blank to auto-detect) */
+  /** Codex CLI Path - Codex CLI binary path (leave blank to auto-detect) */
   "codexCliPath"?: string
 }
 

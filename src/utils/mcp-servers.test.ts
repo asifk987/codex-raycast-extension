@@ -204,6 +204,52 @@ test("redacts secret values while retaining safe environment variable names", ()
   });
 });
 
+test("redacts credentials inside URLs and command arguments", () => {
+  const redacted = mcpServers.redactMcpServerConfig({
+    url: "https://user:pass@mcp.example.com/sse?api_key=url-secret&mode=full",
+    args: [
+      "-y",
+      "mcp-remote",
+      "https://mcp.example.com/mcp",
+      "--header",
+      "Cookie: session=header-secret",
+      "--header=Authorization: Bearer inline-flag-secret",
+      "--api-key",
+      "flag-secret",
+      "--token=inline-secret",
+      "Authorization: Bearer inline-header-secret",
+      "-e",
+      "NOTION_KEY=env-secret",
+      "--env=API_KEY=inline-env-secret",
+      "-e=TOKEN=short-env-secret",
+      "https://mcp.example.com/sse?bare-token-secret",
+      "postgresql://db-user:db-secret@localhost/app",
+    ],
+  });
+
+  assert.deepEqual(redacted, {
+    url: "https://••••••••@mcp.example.com/sse?api_key=••••••••&mode=••••••••",
+    args: [
+      "-y",
+      "mcp-remote",
+      "https://mcp.example.com/mcp",
+      "--header",
+      "••••••••",
+      "--header=••••••••",
+      "--api-key",
+      "••••••••",
+      "--token=••••••••",
+      "Authorization: ••••••••",
+      "-e",
+      "NOTION_KEY=••••••••",
+      "--env=API_KEY=••••••••",
+      "-e=TOKEN=••••••••",
+      "https://mcp.example.com/sse?••••••••",
+      "postgresql://••••••••@localhost/app",
+    ],
+  });
+});
+
 test("builds all named mutations without changing unrelated or unknown fields", () => {
   const original = {
     existing: { command: "old", unknown: { keep: true } },
@@ -224,15 +270,18 @@ test("builds all named mutations without changing unrelated or unknown fields", 
     type: "setEnabled",
     name: "existing",
     enabled: false,
+    expectedConfig: edited.existing,
   });
   const enabled = mcpServers.buildUpdatedMcpServerMap(disabled, {
     type: "setEnabled",
     name: "existing",
     enabled: true,
+    expectedConfig: disabled.existing,
   });
   const removed = mcpServers.buildUpdatedMcpServerMap(enabled, {
     type: "remove",
     name: "new_server",
+    expectedConfig: enabled.new_server,
   });
 
   assert.deepEqual(original.existing, {
@@ -263,6 +312,20 @@ test("builds all named mutations without changing unrelated or unknown fields", 
       }),
     /changed since you opened it/,
   );
+  for (const action of [
+    { type: "setEnabled", enabled: false },
+    { type: "remove" },
+  ] as const) {
+    assert.throws(
+      () =>
+        mcpServers.buildUpdatedMcpServerMap(original, {
+          ...action,
+          name: "existing",
+          expectedConfig: { command: "someone-elses" },
+        }),
+      /changed since you opened it/,
+    );
+  }
 });
 
 test("treats inherited object property names as ordinary server names", () => {
@@ -275,7 +338,7 @@ test("treats inherited object property names as ordinary server names", () => {
     () =>
       mcpServers.buildUpdatedMcpServerMap(
         {},
-        { type: "remove", name: "toString" },
+        { type: "remove", name: "toString", expectedConfig: {} },
       ),
     /no longer in this configuration/,
   );

@@ -187,6 +187,7 @@ export type CodexMcpServerStatus = {
   runtimeStatus?: McpServerRuntimeStatus | null;
   pluginId?: string | null;
   tools: Record<string, { name: string; title?: string | null }>;
+  toolsError?: string | null;
   resources: Array<{ name: string; uri: string }>;
   resourceTemplates: Array<{ name: string; uriTemplate: string }>;
   serverInfo: {
@@ -280,6 +281,7 @@ export type CodexRateLimit = {
 type CodexRateLimitsResponse = {
   rateLimits: CodexRateLimit;
   rateLimitsByLimitId: Record<string, CodexRateLimit | undefined> | null;
+  ordinaryUsageAllowed?: boolean | null;
   rateLimitResetCredits: {
     availableCount: number;
     credits: Array<{
@@ -311,6 +313,10 @@ type AppServerMethods = {
   initialize: { params: InitializeParams; result: InitializeResponse };
   "thread/list": { params: ThreadListParams; result: ThreadListResponse };
   "thread/search": {
+    params: ThreadSearchParams;
+    result: ThreadSearchResponse;
+  };
+  "thread/search/stream": {
     params: ThreadSearchParams;
     result: ThreadSearchResponse;
   };
@@ -369,6 +375,7 @@ type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeoutHandle: ReturnType<typeof setTimeout>;
+  onPartial?: (data: unknown) => void;
 };
 
 type AppServerResultResponse = {
@@ -516,6 +523,18 @@ type CodexMcpOauthLoginCompletedNotification = {
   params: { name: string; success: boolean; error: string | null };
 };
 
+// Request IDs are always strings here, so partials echo strings.
+type CodexThreadSearchPartialNotification = {
+  method: "thread/search/partial";
+  params: { requestId: string; data: unknown };
+};
+
+type AppServerMessage =
+  | AppServerErrorResponse
+  | AppServerResultResponse
+  | CodexMcpOauthLoginCompletedNotification
+  | CodexThreadSearchPartialNotification;
+
 class CodexAppServerSession {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly pendingRequests = new Map<string, PendingRequest>();
@@ -610,7 +629,7 @@ class CodexAppServerSession {
   async request<Method extends keyof AppServerMethods>(
     method: Method,
     params: AppServerMethods[Method]["params"],
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; onPartial?: (data: unknown) => void },
   ): Promise<AppServerMethods[Method]["result"]> {
     if (this.hasExited) {
       throw new Error("Codex app-server is not running");
@@ -641,6 +660,7 @@ class CodexAppServerSession {
           },
           reject,
           timeoutHandle,
+          onPartial: options?.onPartial,
         });
       },
     );
@@ -711,16 +731,10 @@ class CodexAppServerSession {
   }
 
   private handleStdoutLine(line: string) {
-    let message:
-      | AppServerErrorResponse
-      | AppServerResultResponse
-      | CodexMcpOauthLoginCompletedNotification;
+    let message: AppServerMessage;
 
     try {
-      message = JSON.parse(line) as
-        | AppServerErrorResponse
-        | AppServerResultResponse
-        | CodexMcpOauthLoginCompletedNotification;
+      message = JSON.parse(line) as AppServerMessage;
     } catch {
       return;
     }
@@ -735,6 +749,13 @@ class CodexAppServerSession {
               new Error(message.params.error ?? "MCP sign-in failed"),
             );
         }
+      }
+      // Only a pending request receives partials, so a finished or disposed
+      // search can no longer publish them.
+      if (message.method === "thread/search/partial") {
+        this.pendingRequests
+          .get(message.params.requestId)
+          ?.onPartial?.(message.params.data);
       }
       return;
     }
@@ -1079,10 +1100,15 @@ export async function searchThreads(
   }
 
   return withCodexAppServerSession(async (session) => {
+    let canStream = true;
+    let finishedEntries: readonly ThreadSearchEntry[] = [];
+    const publish = (entries: readonly ThreadSearchEntry[]) =>
+      onPage?.(normalizeThreadSearchHits(entries, maxThreadCount));
+
     const entries = await collectPaginatedEntries({
-      requestPage: (cursor) => {
+      requestPage: async (cursor) => {
         signal?.throwIfAborted();
-        return session.request("thread/search", {
+        const params: ThreadSearchParams = {
           searchTerm: query,
           archived,
           cursor,
@@ -1092,7 +1118,33 @@ export async function searchThreads(
           sortKey: "updated_at",
           sortDirection: "desc",
           sourceKinds: allSourceKindsFilter,
-        });
+        };
+        if (canStream) {
+          const partialEntries: ThreadSearchEntry[] = [];
+          try {
+            return await session.request("thread/search/stream", params, {
+              onPartial: (data) => {
+                if (!Array.isArray(data) || !data.every(isThreadSearchEntry)) {
+                  return;
+                }
+                // Sorted like the final page, so its arrival mostly adds and
+                // drops rows.
+                partialEntries.push(...data);
+                partialEntries.sort(
+                  (left, right) =>
+                    right.thread.updatedAt - left.thread.updatedAt,
+                );
+                publish([...finishedEntries, ...partialEntries]);
+              },
+            });
+          } catch (error) {
+            if (!isUnknownMethodError(error)) {
+              throw error;
+            }
+            canStream = false;
+          }
+        }
+        return session.request("thread/search", params);
       },
       isEntry: isThreadSearchEntry,
       description: "thread/search",
@@ -1103,8 +1155,10 @@ export async function searchThreads(
             Math.ceil(
               (maxThreadCount - threadSearchFirstPageSize) / threadPageSize,
             ),
-      onPage: (_pageEntries, accumulatedEntries) =>
-        onPage?.(normalizeThreadSearchHits(accumulatedEntries, maxThreadCount)),
+      onPage: (_pageEntries, accumulatedEntries) => {
+        finishedEntries = accumulatedEntries;
+        publish(accumulatedEntries);
+      },
     });
 
     return normalizeThreadSearchHits(entries, maxThreadCount);
@@ -1112,6 +1166,15 @@ export async function searchThreads(
 }
 
 type ThreadSearchEntry = ThreadSearchResponse["data"][number];
+
+// CLIs before 0.171 reject the method name before any search runs.
+function isUnknownMethodError(error: unknown): boolean {
+  return (
+    error instanceof CodexAppServerRequestError &&
+    error.code === -32600 &&
+    error.message.includes(`unknown variant \`${error.method}\``)
+  );
+}
 
 function isThreadSearchEntry(value: unknown): value is ThreadSearchEntry {
   return (
@@ -1212,6 +1275,7 @@ export async function forkThread(
 
 export async function readLatestThreadMessages(
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<CodexThreadLatestMessages> {
   return withCodexAppServerSession(async (session) => {
     const turns = await listThreadTurnSummaries(session, threadId, {
@@ -1225,7 +1289,7 @@ export async function readLatestThreadMessages(
     });
 
     return extractLatestThreadMessages(turns);
-  });
+  }, signal);
 }
 
 function isAppServerThreadTurn(value: unknown): value is CodexThreadTurn {
@@ -1274,6 +1338,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function readThreadConversation(
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<CodexThreadConversation> {
   return withCodexAppServerSession(async (session) => {
     const turns = await listThreadTurnSummaries(session, threadId, {
@@ -1282,7 +1347,7 @@ export async function readThreadConversation(
     });
 
     return extractThreadConversation(turns);
-  });
+  }, signal);
 }
 
 export async function setThreadName(

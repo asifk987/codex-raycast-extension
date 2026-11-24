@@ -1,6 +1,20 @@
 # Codex Changelog
 
-## [MCP Servers, Projects, and Usage Stats] - {PR_MERGE_DATE}
+## [Streaming Search, Search Projects, and Bug Fixes] - {PR_MERGE_DATE}
+
+- Renamed Browse Projects to Search Projects
+- In Search Projects, Open in Desktop is now Open in Codex, and New Thread takes an optional prompt
+- Renamed the New Thread Mode setting to Default Mode, with Codex, Work, and Chat options
+- Detects the Codex CLI in current ChatGPT app versions
+- Show Configuration now hides credentials in MCP server URLs and command arguments
+- MCP server details now say when tool discovery failed
+- Usage Stats shows Unavailable when daily usage is missing, and warns when included usage is blocked
+- Search results update after you archive or rename a thread
+- Transcript search can show matches while it is still running, with Codex CLI 0.171 or later
+- Leaving a summary, moving between threads, or closing Search Threads during Auto Rename now stops the work in progress
+- Bulk Auto Rename now says up front when Raycast AI is unavailable
+
+## [MCP Servers, Projects, and Usage Stats] - 2026-09-08
 
 - Added Manage MCP Servers to inspect and configure servers, reload changes, and sign in with OAuth
 - Added Browse Projects to view project folders and threads, with Open in Desktop

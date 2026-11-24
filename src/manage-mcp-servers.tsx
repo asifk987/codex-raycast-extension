@@ -391,9 +391,11 @@ function McpServerDetail({
               text={
                 runtimeDetailsState === "loading"
                   ? "Loading from Codex"
-                  : record.runtimeAvailable
-                    ? "None reported"
-                    : "Unavailable"
+                  : record.toolsError
+                    ? `Discovery failed: ${record.toolsError}`
+                    : record.runtimeAvailable
+                      ? "None reported"
+                      : "Unavailable"
               }
             />
           )}
@@ -633,7 +635,7 @@ function CommonActions({
             .filter((root) => root.isAvailable)
             .map((root, index) => (
               <Action
-                key={root.path}
+                key={`${project.id}:${root.path}`}
                 title={getProjectRootTitle(project, root.path, index)}
                 icon={
                   root.path === folderContext ? Icon.CheckCircle : Icon.Folder
@@ -674,7 +676,7 @@ function SafeConfigurationDetail({ record }: { record: McpServerRecord }) {
   );
   return (
     <Detail
-      markdown={`# ${record.name}\n\nSecret values are redacted.\n\n~~~json\n${safeConfiguration}\n~~~`}
+      markdown={`# ${record.name}\n\n~~~json\n${safeConfiguration}\n~~~`}
     />
   );
 }
@@ -1061,7 +1063,12 @@ async function confirmEnabledChange({
     await applyMcpMutation({
       folderContext,
       layerId: layer.id,
-      mutation: { type: "setEnabled", name: record.name, enabled },
+      mutation: {
+        type: "setEnabled",
+        name: record.name,
+        enabled,
+        expectedConfig: layer.servers[record.name],
+      },
       successTitle: `MCP Server ${enabled ? "Enabled" : "Disabled"}`,
       onChanged,
     });
@@ -1099,7 +1106,11 @@ async function confirmRemoval({
     await applyMcpMutation({
       folderContext,
       layerId: layer.id,
-      mutation: { type: "remove", name: record.name },
+      mutation: {
+        type: "remove",
+        name: record.name,
+        expectedConfig: layer.servers[record.name],
+      },
       successTitle: "MCP Server Uninstalled",
       onChanged,
     });

@@ -1,7 +1,11 @@
 import nodePath from "node:path";
 
-export const bundledCodexCliPath =
-  "/Applications/ChatGPT.app/Contents/Resources/codex";
+// Current ChatGPT app builds keep the CLI in codex-cli/bin. Older builds put it
+// directly in Resources.
+export const bundledCodexCliPaths = [
+  "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+  "/Applications/ChatGPT.app/Contents/Resources/codex",
+];
 
 // Homebrew, npm -g, and the official standalone installer symlink.
 export function userInstalledCodexCliPaths(homeDirectory: string): string[] {
@@ -31,7 +35,7 @@ export function buildCodexCliCandidatePaths(
   return Array.from(
     new Set([
       ...(preferredPath ? [preferredPath] : []),
-      bundledCodexCliPath,
+      ...bundledCodexCliPaths,
       standaloneCodexCliPath(homeDirectory),
       ...userInstalledCodexCliPaths(homeDirectory),
     ]),

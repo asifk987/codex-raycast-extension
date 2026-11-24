@@ -22,6 +22,7 @@ import {
   useForm,
   usePromise,
 } from "@raycast/utils";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -65,6 +66,7 @@ import {
 } from "./utils/search";
 import {
   buildThreadSummaryDocument,
+  ensureAiAccess,
   summarizeCodexThread,
 } from "./utils/summary";
 import {
@@ -143,6 +145,8 @@ export default function CodexThreadsCommand() {
     useCachedState<string | null>("codex-threads-project-filter-cwd", null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
+  const [unmountController] = useState(() => new AbortController());
+  useEffect(() => () => unmountController.abort(), [unmountController]);
   useEffect(() => {
     removeLegacyThreadSearchCache();
   }, []);
@@ -169,8 +173,8 @@ export default function CodexThreadsCommand() {
   } = useCachedPromise(listThreads, threadListArgs, {
     keepPreviousData: true,
   });
-  // Codex leaves a thread out of thread/list until it has its first message, so
-  // a fork made here is read by id until the list starts returning it.
+  // Codex can omit forks with empty previews from thread/list, so a fork made
+  // here is read by id until the list starts returning it.
   const [forkedThreadIds, setForkedThreadIds] = useState<string[]>([]);
   const listedThreadIds = useMemo(
     () => new Set((fetchedThreads ?? emptyThreads).map((thread) => thread.id)),
@@ -261,7 +265,11 @@ export default function CodexThreadsCommand() {
     hits: CodexThreadSearchHit[];
   }>({ query: "", archived: false, hits: [] });
   const searchAbortable = useRef<AbortController>(undefined);
-  const { error: searchError, isLoading: isSearching } = usePromise(
+  const {
+    error: searchError,
+    isLoading: isSearching,
+    revalidate: revalidateTranscriptSearch,
+  } = usePromise(
     (query: string, isArchived: boolean) =>
       searchThreads(
         query,
@@ -333,16 +341,38 @@ export default function CodexThreadsCommand() {
     displayedThreads.some((thread) => thread.id === selectedThreadId)
       ? selectedThreadId
       : (displayedThreads[0]?.id ?? null);
+  const previewAbortable = useRef<AbortController>(undefined);
   const {
     data: latestSelectedThreadMessages,
     error: latestSelectedThreadMessagesError,
     isLoading: isLatestSelectedThreadMessagesLoading,
     revalidate: revalidateLatestSelectedThreadMessages,
-  } = usePromise(readLatestThreadMessages, [effectiveSelectedThreadId ?? ""], {
-    execute: isShowingDetail && Boolean(effectiveSelectedThreadId),
-  });
+  } = usePromise(
+    async (threadId: string) => {
+      const signal = previewAbortable.current?.signal;
+      // Rows the arrow keys pass through never start a Codex process.
+      await delay(150, undefined, { signal });
+      return {
+        threadId,
+        ...(await readLatestThreadMessages(threadId, signal)),
+      };
+    },
+    [effectiveSelectedThreadId ?? ""],
+    {
+      execute: isShowingDetail && Boolean(effectiveSelectedThreadId),
+      abortable: previewAbortable,
+    },
+  );
+  // Archiving or renaming changes transcript hits too, so reloads also rerun
+  // the active transcript search instead of keeping hits that moved.
+  const revalidateThreadsAndSearch = async () => {
+    if (shouldSearchTranscripts) {
+      void revalidateTranscriptSearch();
+    }
+    return revalidateThreads();
+  };
   const refreshThreadsAndSelectedMessages = async () => {
-    const threadsResult = await revalidateThreads();
+    const threadsResult = await revalidateThreadsAndSearch();
     if (isShowingDetail && effectiveSelectedThreadId) {
       const messagesResult = await revalidateLatestSelectedThreadMessages();
       return threadsResult ?? messagesResult;
@@ -421,9 +451,12 @@ export default function CodexThreadsCommand() {
           {section.results.map(({ thread, match }) => {
             const threadChildCounts = childCounts.get(thread.id) ?? noChildren;
             const isSelected = thread.id === effectiveSelectedThreadId;
-            const selectedLatestMessages = isSelected
-              ? latestSelectedThreadMessages
-              : undefined;
+            // The preview keeps its last result while loading or hidden, so
+            // only a row it was read for may use it.
+            const selectedLatestMessages =
+              isSelected && latestSelectedThreadMessages?.threadId === thread.id
+                ? latestSelectedThreadMessages
+                : undefined;
 
             const displayTitle = getThreadDisplayTitle(thread);
             return (
@@ -470,7 +503,7 @@ export default function CodexThreadsCommand() {
                         current.filter((id) => id !== threadId),
                       );
                     }}
-                    onThreadsChanged={revalidateThreads}
+                    onThreadsChanged={revalidateThreadsAndSearch}
                     onToggleDetail={() => {
                       setIsShowingDetail(!isShowingDetail);
                     }}
@@ -478,6 +511,7 @@ export default function CodexThreadsCommand() {
                       setShowChildThreads(!showChildThreads);
                     }}
                     autoRenameCandidates={displayedThreads}
+                    autoRenameSignal={unmountController.signal}
                     projectFilter={projectFilter}
                     thread={thread}
                     latestMessages={selectedLatestMessages}
@@ -675,6 +709,7 @@ function ThreadActions({
   onToggleDetail,
   onToggleShowSubagents,
   autoRenameCandidates,
+  autoRenameSignal,
   projectFilter,
   thread,
   latestMessages,
@@ -690,6 +725,7 @@ function ThreadActions({
   onToggleDetail: () => void;
   onToggleShowSubagents: () => void;
   autoRenameCandidates: CodexThread[];
+  autoRenameSignal: AbortSignal;
   projectFilter: WorkingDirectoryFilter;
   thread: CodexThread;
   latestMessages?: CodexThreadLatestMessages;
@@ -745,7 +781,12 @@ function ThreadActions({
           icon={Icon.Wand}
           shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
           onAction={async () => {
-            await autoRenameThread(thread, archived, onThreadsChanged);
+            await autoRenameThread(
+              thread,
+              archived,
+              onThreadsChanged,
+              autoRenameSignal,
+            );
           }}
         />
         <Action.Push
@@ -857,6 +898,7 @@ function ThreadActions({
                   batchSize,
                   archived,
                   onThreadsChanged,
+                  autoRenameSignal,
                 );
               }}
             />
@@ -1013,9 +1055,12 @@ function ThreadSummaryDetail({
   thread: CodexThread;
   onRenameSuccess: () => Promise<unknown> | void;
 }) {
+  const summaryAbortable = useRef<AbortController>(undefined);
   const { data, error, isLoading, revalidate } = usePromise(
-    summarizeCodexThread,
+    (summaryThread: CodexThread) =>
+      summarizeCodexThread(summaryThread, summaryAbortable.current?.signal),
     [thread],
+    { abortable: summaryAbortable },
   );
   const summaryDocument = data
     ? buildThreadSummaryDocument(thread, data)
@@ -1137,16 +1182,22 @@ async function autoRenameThread(
   thread: CodexThread,
   archived: boolean,
   onThreadsChanged: () => Promise<unknown> | void,
+  signal: AbortSignal,
 ) {
   const toast = await showToast({
     style: Toast.Style.Animated,
     title: "Auto Renaming Thread",
     message: truncate(getThreadDisplayTitle(thread), 110),
   });
-  const [result] = await autoRenameCodexThreads({
+  const results = await autoRenameCodexThreads({
     archived,
+    signal,
     threads: [thread],
-  });
+  }).catch(ignoreAbort(signal));
+  if (!results || signal.aborted) {
+    return;
+  }
+  const [result] = results;
 
   if (!result || result.status === "failed") {
     toast.style = Toast.Style.Failure;
@@ -1183,6 +1234,7 @@ async function autoRenameVisibleThreads(
   requestedCount: number,
   archived: boolean,
   onThreadsChanged: () => Promise<unknown> | void,
+  signal: AbortSignal,
 ) {
   const targets = candidates.slice(0, requestedCount);
 
@@ -1192,6 +1244,13 @@ async function autoRenameVisibleThreads(
       title: "No Visible Threads",
       message: "There are no threads to rename in the current view.",
     });
+    return;
+  }
+
+  try {
+    ensureAiAccess();
+  } catch (error) {
+    await showFailureToast(error, { title: "Raycast AI Unavailable" });
     return;
   }
 
@@ -1216,11 +1275,15 @@ async function autoRenameVisibleThreads(
   });
   const results = await autoRenameCodexThreads({
     archived,
+    signal,
     threads: targets,
     onProgress: ({ completedCount, title, total }) => {
       toast.message = `${completedCount}/${total}: ${truncate(title, 54)}`;
     },
-  });
+  }).catch(ignoreAbort(signal));
+  if (!results || signal.aborted) {
+    return;
+  }
 
   try {
     await onThreadsChanged();
@@ -1251,6 +1314,15 @@ async function autoRenameVisibleThreads(
     onAction: async () => {
       await Clipboard.copy(buildAutoRenameReport(results));
     },
+  };
+}
+
+// Closing the thread list cancels a running rename; nothing is left to report to.
+function ignoreAbort(signal: AbortSignal) {
+  return (error: unknown): undefined => {
+    if (!signal.aborted) {
+      throw error;
+    }
   };
 }
 

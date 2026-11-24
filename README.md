@@ -1,4 +1,4 @@
-# Codex
+# Codex for Raycast
 
 Monitor and manage your Codex threads, MCPs, projects, and usage directly from Raycast.
 
@@ -12,15 +12,15 @@ Inspect the MCP servers Codex knows about, their sign-in state, where each one i
 - Show Project Servers lists the MCP servers a Codex project's own configuration adds, picked from your Codex projects or any folder. Codex keeps project configuration read-only.
 - Admin-managed configuration shows up too, and stays locked.
 - Start Codex OAuth sign-in and reload MCP configuration.
-- Show Configuration redacts secret values. The command never runs MCP tools or MCP server processes.
+- Show Configuration hides recognized secrets, including credentials in server URLs and command arguments. The command never runs MCP tools or MCP server processes.
 - Uninstall deletes only the selected Codex configuration entry. The server's software and any OAuth access stay in place.
 
-### Browse Projects
+### Search Projects
 
 Browse the projects configured in the Codex desktop app, including their pinned order, primary and attached folders, and the threads assigned to them.
 
-- **Open in Desktop** (⌘↵) opens a new composer with the saved project selected, keeping the desktop app's current mode.
-- **New Thread in Project** (⌘N) opens a blank composer in the selected project from the project list or its thread list, including empty projects.
+- **Open in Codex** (⌘↵) opens a new composer with the saved project selected, keeping the desktop app's current mode.
+- **New Thread** (⌘N) asks for an optional prompt, then opens a composer in the selected project with it filled in, from the project list or its thread list, including empty projects.
 - Open an assigned thread in Codex.
 - Reveal available project folders in Finder or copy their paths.
 - Inspect project folder and activity details.
@@ -70,41 +70,32 @@ Assign this command a hotkey in Raycast to send a selection directly to Codex wi
 
 Open Codex in the ChatGPT desktop app.
 
-## Requirements
+## Setup Requirements and Guidance
 
-- The ChatGPT desktop app for macOS, with Codex available and signed in.
-- The Codex CLI (detected automatically, see below). Full transcript search requires a version whose `app-server` supports it.
-- Raycast AI (Raycast Pro) for the Summarize and Auto Rename actions.
+- ChatGPT desktop app for macOS with Codex available
+- Raycast Pro required for AI features like Summarize and Auto Rename actions.
+- Installed Codex CLI. Extension auto-detects binary in this priority:
+  1. The **Codex CLI Path** preference (set manually if none below match)
+  2. The ChatGPT app bundle (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`, or `Contents/Resources/codex` in older app versions)
+  3. `~/.codex/packages/standalone/current/codex` (standalone installer)
+  4. `/opt/homebrew/bin/codex` (Homebrew on Apple Silicon)
+  5. `/usr/local/bin/codex` (Homebrew on Intel)
+  6. `~/.local/bin/codex`
+  7. Your login shell (`command -v codex`)
 
-### Codex CLI in a non-standard location
-
-The extension detects the `codex` binary automatically by searching:
-
-1. The **Codex CLI Path** preference, if set
-2. The ChatGPT app bundle (`/Applications/ChatGPT.app/Contents/Resources/codex`)
-3. `~/.codex/packages/standalone/current/codex` (standalone installer)
-4. `/opt/homebrew/bin/codex` (Homebrew on Apple Silicon)
-5. `/usr/local/bin/codex` (Homebrew on Intel)
-6. `~/.local/bin/codex`
-7. Your login shell (`command -v codex`)
-
-If none match, set the path manually in the **Codex CLI Path** preference.
-
-## Preferences
+## Extension Settings (configurable in Raycast)
 
 | Preference                    | Description                                                                                                                       |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **New Thread Mode**           | Which mode to open new threads in: Codex, ChatGPT Work, or regular ChatGPT Chat. Working directory settings apply to Codex and Work. |
+| **Default Mode**              | Which mode new threads open in: Codex, Work, or Chat. Working directory settings apply to Codex and Work.                          |
 | **Default Working Directory** | Default directory for all new Codex threads, used when you don't pick a folder.                                                   |
 | **Working Directory Root**    | Folder whose direct subfolders become the working directory choices in New Thread with Prompt (for example, ~/projects or ~/dev). |
 | **Terminal App**              | Terminal that Resume in Terminal opens: Terminal, Ghostty (1.3 or later), or iTerm2.                                              |
 | **Codex CLI Path**            | Path to the Codex CLI binary. Leave blank to auto-detect using the search order above.                                            |
 
-## Contributing
+## Contributing via Raycast
 
-**Via Raycast (recommended):**
-
-1. Use the "Fork Extension" action in Raycast's root search
+1. Use the `Fork Extension` action in Raycast's root search
 2. Run `npm install && npm run dev` from the extension folder
 
 When submitting changes, add yourself to contributors in `package.json` and update `CHANGELOG.md`.
