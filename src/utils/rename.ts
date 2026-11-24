@@ -22,6 +22,7 @@ const renameConcurrency = 3;
 export async function autoRenameCodexThreads({
   archived,
   onProgress,
+  signal,
   threads,
 }: {
   archived: boolean;
@@ -31,16 +32,19 @@ export async function autoRenameCodexThreads({
     thread: CodexThread;
     title: string;
   }) => void;
+  signal?: AbortSignal;
   threads: CodexThread[];
 }): Promise<AutoRenameResult[]> {
   let completed = 0;
 
   return withConcurrency(threads, renameConcurrency, async (thread) => {
+    signal?.throwIfAborted();
     const previousTitle = getThreadDisplayTitle(thread);
     let result: AutoRenameResult;
 
     try {
-      const nextTitle = (await generateCodexThreadTitle(thread)).trim();
+      const nextTitle = (await generateCodexThreadTitle(thread, signal)).trim();
+      signal?.throwIfAborted();
 
       if (areEquivalentThreadNames(previousTitle, nextTitle)) {
         result = {
@@ -66,6 +70,7 @@ export async function autoRenameCodexThreads({
         };
       }
     } catch (error) {
+      signal?.throwIfAborted();
       result = {
         id: thread.id,
         previousTitle,

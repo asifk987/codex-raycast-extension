@@ -1063,7 +1063,12 @@ async function confirmEnabledChange({
     await applyMcpMutation({
       folderContext,
       layerId: layer.id,
-      mutation: { type: "setEnabled", name: record.name, enabled },
+      mutation: {
+        type: "setEnabled",
+        name: record.name,
+        enabled,
+        expectedConfig: layer.servers[record.name],
+      },
       successTitle: `MCP Server ${enabled ? "Enabled" : "Disabled"}`,
       onChanged,
     });
@@ -1101,7 +1106,11 @@ async function confirmRemoval({
     await applyMcpMutation({
       folderContext,
       layerId: layer.id,
-      mutation: { type: "remove", name: record.name },
+      mutation: {
+        type: "remove",
+        name: record.name,
+        expectedConfig: layer.servers[record.name],
+      },
       successTitle: "MCP Server Uninstalled",
       onChanged,
     });

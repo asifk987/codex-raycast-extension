@@ -95,14 +95,19 @@ export async function summarizeCodexThread(
 
 export async function generateCodexThreadTitle(
   thread: CodexThread,
+  signal?: AbortSignal,
 ): Promise<string> {
   ensureAiAccess();
 
-  const preparedTranscript = await prepareThreadTranscript(thread);
+  const preparedTranscript = await prepareThreadTranscript(thread, signal);
   const titleSignals =
     preparedTranscript.chunks.length === 1
       ? []
-      : await summarizeTitleSignalChunks(thread, preparedTranscript.chunks);
+      : await summarizeTitleSignalChunks(
+          thread,
+          preparedTranscript.chunks,
+          signal,
+        );
   const source =
     preparedTranscript.chunks.length === 1
       ? preparedTranscript.chunks[0]
@@ -110,6 +115,7 @@ export async function generateCodexThreadTitle(
   const rawTitle = await askSummaryAi(
     buildTitlePrompt(thread, source, preparedTranscript.chunks.length),
     titleModel,
+    signal,
   );
 
   return parseThreadTitleResponse(rawTitle, thread);
@@ -133,7 +139,7 @@ export function buildThreadSummaryDocument(
   return parts.join("\n");
 }
 
-function ensureAiAccess() {
+export function ensureAiAccess() {
   if (!environment.canAccess(AI)) {
     throw new Error(
       "Raycast AI is not available for this extension. Enable Raycast AI access and try again.",
@@ -185,8 +191,15 @@ function summarizeTranscriptChunks(
 function summarizeTitleSignalChunks(
   thread: CodexThread,
   chunks: string[],
+  signal?: AbortSignal,
 ): Promise<string[]> {
-  return processChunks(thread, chunks, buildTitleSignalChunkPrompt, titleModel);
+  return processChunks(
+    thread,
+    chunks,
+    buildTitleSignalChunkPrompt,
+    titleModel,
+    signal,
+  );
 }
 
 async function askSummaryAi(

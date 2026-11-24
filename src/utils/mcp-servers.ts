@@ -57,18 +57,23 @@ export type McpServerFormValues = {
   deniedTools?: string[];
 };
 
+// Changes to an existing server carry the raw layer entry the user acted on,
+// so an entry that changed since then needs a refresh first.
 export type McpServerMutation =
   | { type: "add"; name: string; config: McpServerConfig }
   | {
       type: "replace";
       name: string;
       config: McpServerConfig;
-      // Raw layer entry the edit started from. A mismatch means the file
-      // changed while the form was open and the save would clobber it.
       expectedConfig: McpServerConfig;
     }
-  | { type: "setEnabled"; name: string; enabled: boolean }
-  | { type: "remove"; name: string };
+  | {
+      type: "setEnabled";
+      name: string;
+      enabled: boolean;
+      expectedConfig: McpServerConfig;
+    }
+  | { type: "remove"; name: string; expectedConfig: McpServerConfig };
 
 export function normalizeMcpConfigLayers(
   response: CodexConfigReadResponse,
@@ -185,6 +190,12 @@ export function buildUpdatedMcpServerMap(
     );
   }
 
+  if (!isDeepStrictEqual(updated[mutation.name], mutation.expectedConfig)) {
+    throw new Error(
+      `MCP server "${mutation.name}" changed since you opened it. Refresh and try again.`,
+    );
+  }
+
   if (mutation.type === "remove") {
     delete updated[mutation.name];
   } else if (mutation.type === "setEnabled") {
@@ -193,11 +204,6 @@ export function buildUpdatedMcpServerMap(
       enabled: mutation.enabled,
     });
   } else {
-    if (!isDeepStrictEqual(updated[mutation.name], mutation.expectedConfig)) {
-      throw new Error(
-        `MCP server "${mutation.name}" changed since you opened it. Refresh and try again.`,
-      );
-    }
     setServer(updated, mutation.name, structuredClone(mutation.config));
   }
 

@@ -264,15 +264,18 @@ test("builds all named mutations without changing unrelated or unknown fields", 
     type: "setEnabled",
     name: "existing",
     enabled: false,
+    expectedConfig: edited.existing,
   });
   const enabled = mcpServers.buildUpdatedMcpServerMap(disabled, {
     type: "setEnabled",
     name: "existing",
     enabled: true,
+    expectedConfig: disabled.existing,
   });
   const removed = mcpServers.buildUpdatedMcpServerMap(enabled, {
     type: "remove",
     name: "new_server",
+    expectedConfig: enabled.new_server,
   });
 
   assert.deepEqual(original.existing, {
@@ -303,6 +306,20 @@ test("builds all named mutations without changing unrelated or unknown fields", 
       }),
     /changed since you opened it/,
   );
+  for (const action of [
+    { type: "setEnabled", enabled: false },
+    { type: "remove" },
+  ] as const) {
+    assert.throws(
+      () =>
+        mcpServers.buildUpdatedMcpServerMap(original, {
+          ...action,
+          name: "existing",
+          expectedConfig: { command: "someone-elses" },
+        }),
+      /changed since you opened it/,
+    );
+  }
 });
 
 test("treats inherited object property names as ordinary server names", () => {
@@ -315,7 +332,7 @@ test("treats inherited object property names as ordinary server names", () => {
     () =>
       mcpServers.buildUpdatedMcpServerMap(
         {},
-        { type: "remove", name: "toString" },
+        { type: "remove", name: "toString", expectedConfig: {} },
       ),
     /no longer in this configuration/,
   );

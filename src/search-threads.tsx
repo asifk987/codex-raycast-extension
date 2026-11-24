@@ -66,6 +66,7 @@ import {
 } from "./utils/search";
 import {
   buildThreadSummaryDocument,
+  ensureAiAccess,
   summarizeCodexThread,
 } from "./utils/summary";
 import {
@@ -144,6 +145,8 @@ export default function CodexThreadsCommand() {
     useCachedState<string | null>("codex-threads-project-filter-cwd", null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
+  const [unmountController] = useState(() => new AbortController());
+  useEffect(() => () => unmountController.abort(), [unmountController]);
   useEffect(() => {
     removeLegacyThreadSearchCache();
   }, []);
@@ -502,6 +505,7 @@ export default function CodexThreadsCommand() {
                       setShowChildThreads(!showChildThreads);
                     }}
                     autoRenameCandidates={displayedThreads}
+                    autoRenameSignal={unmountController.signal}
                     projectFilter={projectFilter}
                     thread={thread}
                     latestMessages={selectedLatestMessages}
@@ -699,6 +703,7 @@ function ThreadActions({
   onToggleDetail,
   onToggleShowSubagents,
   autoRenameCandidates,
+  autoRenameSignal,
   projectFilter,
   thread,
   latestMessages,
@@ -714,6 +719,7 @@ function ThreadActions({
   onToggleDetail: () => void;
   onToggleShowSubagents: () => void;
   autoRenameCandidates: CodexThread[];
+  autoRenameSignal: AbortSignal;
   projectFilter: WorkingDirectoryFilter;
   thread: CodexThread;
   latestMessages?: CodexThreadLatestMessages;
@@ -769,7 +775,12 @@ function ThreadActions({
           icon={Icon.Wand}
           shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
           onAction={async () => {
-            await autoRenameThread(thread, archived, onThreadsChanged);
+            await autoRenameThread(
+              thread,
+              archived,
+              onThreadsChanged,
+              autoRenameSignal,
+            );
           }}
         />
         <Action.Push
@@ -881,6 +892,7 @@ function ThreadActions({
                   batchSize,
                   archived,
                   onThreadsChanged,
+                  autoRenameSignal,
                 );
               }}
             />
@@ -1164,16 +1176,22 @@ async function autoRenameThread(
   thread: CodexThread,
   archived: boolean,
   onThreadsChanged: () => Promise<unknown> | void,
+  signal: AbortSignal,
 ) {
   const toast = await showToast({
     style: Toast.Style.Animated,
     title: "Auto Renaming Thread",
     message: truncate(getThreadDisplayTitle(thread), 110),
   });
-  const [result] = await autoRenameCodexThreads({
+  const results = await autoRenameCodexThreads({
     archived,
+    signal,
     threads: [thread],
-  });
+  }).catch(ignoreAbort(signal));
+  if (!results) {
+    return;
+  }
+  const [result] = results;
 
   if (!result || result.status === "failed") {
     toast.style = Toast.Style.Failure;
@@ -1210,6 +1228,7 @@ async function autoRenameVisibleThreads(
   requestedCount: number,
   archived: boolean,
   onThreadsChanged: () => Promise<unknown> | void,
+  signal: AbortSignal,
 ) {
   const targets = candidates.slice(0, requestedCount);
 
@@ -1219,6 +1238,13 @@ async function autoRenameVisibleThreads(
       title: "No Visible Threads",
       message: "There are no threads to rename in the current view.",
     });
+    return;
+  }
+
+  try {
+    ensureAiAccess();
+  } catch (error) {
+    await showFailureToast(error, { title: "Raycast AI Unavailable" });
     return;
   }
 
@@ -1243,11 +1269,15 @@ async function autoRenameVisibleThreads(
   });
   const results = await autoRenameCodexThreads({
     archived,
+    signal,
     threads: targets,
     onProgress: ({ completedCount, title, total }) => {
       toast.message = `${completedCount}/${total}: ${truncate(title, 54)}`;
     },
-  });
+  }).catch(ignoreAbort(signal));
+  if (!results) {
+    return;
+  }
 
   try {
     await onThreadsChanged();
@@ -1278,6 +1308,15 @@ async function autoRenameVisibleThreads(
     onAction: async () => {
       await Clipboard.copy(buildAutoRenameReport(results));
     },
+  };
+}
+
+// Closing the thread list cancels a running rename; nothing is left to report to.
+function ignoreAbort(signal: AbortSignal) {
+  return (error: unknown): undefined => {
+    if (!signal.aborted) {
+      throw error;
+    }
   };
 }
 

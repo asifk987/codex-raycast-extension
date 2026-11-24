@@ -9,7 +9,9 @@
 - MCP server details now say when tool discovery failed
 - Usage Stats shows Unavailable when daily usage is missing, and warns when included usage is blocked
 - Search results update after you archive or rename a thread
-- Leaving a summary or moving between threads now stops the work in progress
+- Transcript search can show matches while it is still running, with Codex CLI 0.171 or later
+- Leaving a summary, moving between threads, or closing Search Threads during Auto Rename now stops the work in progress
+- Bulk Auto Rename now says up front when Raycast AI is unavailable
 
 ## [MCP Servers, Projects, and Usage Stats] - 2026-09-08
 
