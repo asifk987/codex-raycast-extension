@@ -676,7 +676,7 @@ function SafeConfigurationDetail({ record }: { record: McpServerRecord }) {
   );
   return (
     <Detail
-      markdown={`# ${record.name}\n\nRecognized secret values are redacted. Review before sharing.\n\n~~~json\n${safeConfiguration}\n~~~`}
+      markdown={`# ${record.name}\n\n~~~json\n${safeConfiguration}\n~~~`}
     />
   );
 }

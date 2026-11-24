@@ -1,6 +1,17 @@
 # Codex Changelog
 
-## [MCP Servers, Projects, and Usage Stats] - {PR_MERGE_DATE}
+## [Default Mode, CLI Detection, and Fixes] - {PR_MERGE_DATE}
+
+- Renamed Browse Projects to Codex Projects
+- Renamed the New Thread Mode setting to Default Mode, with Codex, Work, and Chat options
+- Detects the Codex CLI in current ChatGPT app versions
+- Show Configuration now hides credentials in MCP server URLs and command arguments
+- MCP server details now say when tool discovery failed
+- Usage Stats shows Unavailable when daily usage is missing, and warns when included usage is blocked
+- Search results update after you archive or rename a thread
+- Leaving a summary or moving between threads now stops the work in progress
+
+## [MCP Servers, Projects, and Usage Stats] - 2026-09-08
 
 - Added Manage MCP Servers to inspect and configure servers, reload changes, and sign in with OAuth
 - Added Browse Projects to view project folders and threads, with Open in Desktop
@@ -11,7 +22,7 @@
 - Added Browse Child Threads for subagents, automations, and maintenance threads
 - Added Copy Last User Turn, Copy Last Assistant Turn, and Paste Summary actions
 - Improved large-thread summaries, copying, and exports, with updated AI models
-- Added Ghostty and iTerm2 support for terminal resume, detection for standalone Codex installs and current ChatGPT app versions, and fixes for thread launching
+- Added Ghostty and iTerm2 support for terminal resume, detection for standalone Codex installs, and fixes for thread launching
 
 ## [Modernized Thread Management] - 2026-07-25
 
