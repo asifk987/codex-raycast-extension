@@ -3,6 +3,7 @@ import {
   ActionPanel,
   Color,
   Detail,
+  Form,
   Icon,
   Keyboard,
   List,
@@ -279,12 +280,12 @@ function ProjectActions({
         target={<ProjectThreads project={project} />}
       />
       <Action
-        title="Open in Desktop"
+        title="Open in Codex"
         icon={Icon.AppWindow}
         shortcut={{ modifiers: ["cmd"], key: "return" }}
         onAction={() =>
           runNoViewActionWithFailureToast(
-            "Unable to open project in desktop app",
+            "Unable to open project in Codex",
             () => openCodexProject(project.id),
           )
         }
@@ -435,16 +436,40 @@ async function loadProjectThreads(projectId: string) {
 
 function NewProjectThreadAction({ projectId }: { projectId: string }) {
   return (
-    <Action
-      title="New Thread in Project"
+    <Action.Push
+      title="New Thread"
       icon={Icon.PlusCircle}
       shortcut={Keyboard.Shortcut.Common.New}
-      onAction={() =>
-        runNoViewActionWithFailureToast("Unable to start thread in Codex", () =>
-          openCodexProject(projectId),
-        )
-      }
+      target={<NewProjectThreadForm projectId={projectId} />}
     />
+  );
+}
+
+function NewProjectThreadForm({ projectId }: { projectId: string }) {
+  return (
+    <Form
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm
+            title="Start Thread"
+            icon={Icon.Stars}
+            onSubmit={({ prompt }: { prompt: string }) =>
+              runNoViewActionWithFailureToast(
+                "Unable to start thread in Codex",
+                () => openCodexProject(projectId, prompt),
+              )
+            }
+          />
+        </ActionPanel>
+      }
+    >
+      <Form.TextArea
+        id="prompt"
+        title="Prompt"
+        placeholder="Optional prompt"
+        autoFocus
+      />
+    </Form>
   );
 }
 

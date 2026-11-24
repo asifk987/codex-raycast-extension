@@ -220,6 +220,9 @@ test("redacts credentials inside URLs and command arguments", () => {
       "Authorization: Bearer inline-header-secret",
       "-e",
       "NOTION_KEY=env-secret",
+      "--env=API_KEY=inline-env-secret",
+      "-e=TOKEN=short-env-secret",
+      "https://mcp.example.com/sse?bare-token-secret",
       "postgresql://db-user:db-secret@localhost/app",
     ],
   });
@@ -239,6 +242,9 @@ test("redacts credentials inside URLs and command arguments", () => {
       "Authorization: ••••••••",
       "-e",
       "NOTION_KEY=••••••••",
+      "--env=API_KEY=••••••••",
+      "-e=TOKEN=••••••••",
+      "https://mcp.example.com/sse?••••••••",
       "postgresql://••••••••@localhost/app",
     ],
   });

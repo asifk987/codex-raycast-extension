@@ -40,15 +40,23 @@ export async function openCodexApp(): Promise<void> {
   await activateCodexApp();
 }
 
-export async function openCodexProject(projectId: string): Promise<void> {
+export async function openCodexProject(
+  projectId: string,
+  prompt?: string,
+): Promise<void> {
   const id = projectId.trim();
   if (!id) {
     throw new Error("Project ID is required.");
   }
 
   const params = new URLSearchParams({ projectId: id });
+  const trimmedPrompt = prompt?.trim();
+  if (trimmedPrompt) {
+    params.set("prompt", trimmedPrompt);
+  }
   await ensureCodexAppIsReady();
   // The new alias handles projectId alone and leaves the app's mode unchanged.
+  // A prompt prefills the composer without sending it.
   await open(`codex://new?${params.toString()}`);
   await activateCodexApp();
 }

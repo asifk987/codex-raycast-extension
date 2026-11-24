@@ -1,8 +1,9 @@
 # Codex Changelog
 
-## [Default Mode, CLI Detection, and Fixes] - {PR_MERGE_DATE}
+## [Streaming Search, Search Projects, and Bug Fixes] - {PR_MERGE_DATE}
 
-- Renamed Browse Projects to Codex Projects
+- Renamed Browse Projects to Search Projects
+- In Search Projects, Open in Desktop is now Open in Codex, and New Thread takes an optional prompt
 - Renamed the New Thread Mode setting to Default Mode, with Codex, Work, and Chat options
 - Detects the Codex CLI in current ChatGPT app versions
 - Show Configuration now hides credentials in MCP server URLs and command arguments

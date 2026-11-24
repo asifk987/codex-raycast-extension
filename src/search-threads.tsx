@@ -352,7 +352,10 @@ export default function CodexThreadsCommand() {
       const signal = previewAbortable.current?.signal;
       // Rows the arrow keys pass through never start a Codex process.
       await delay(150, undefined, { signal });
-      return readLatestThreadMessages(threadId, signal);
+      return {
+        threadId,
+        ...(await readLatestThreadMessages(threadId, signal)),
+      };
     },
     [effectiveSelectedThreadId ?? ""],
     {
@@ -448,9 +451,12 @@ export default function CodexThreadsCommand() {
           {section.results.map(({ thread, match }) => {
             const threadChildCounts = childCounts.get(thread.id) ?? noChildren;
             const isSelected = thread.id === effectiveSelectedThreadId;
-            const selectedLatestMessages = isSelected
-              ? latestSelectedThreadMessages
-              : undefined;
+            // The preview keeps its last result while loading or hidden, so
+            // only a row it was read for may use it.
+            const selectedLatestMessages =
+              isSelected && latestSelectedThreadMessages?.threadId === thread.id
+                ? latestSelectedThreadMessages
+                : undefined;
 
             const displayTitle = getThreadDisplayTitle(thread);
             return (
@@ -1188,7 +1194,7 @@ async function autoRenameThread(
     signal,
     threads: [thread],
   }).catch(ignoreAbort(signal));
-  if (!results) {
+  if (!results || signal.aborted) {
     return;
   }
   const [result] = results;
@@ -1275,7 +1281,7 @@ async function autoRenameVisibleThreads(
       toast.message = `${completedCount}/${total}: ${truncate(title, 54)}`;
     },
   }).catch(ignoreAbort(signal));
-  if (!results) {
+  if (!results || signal.aborted) {
     return;
   }
 

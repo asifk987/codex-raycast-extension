@@ -635,7 +635,7 @@ function CommonActions({
             .filter((root) => root.isAvailable)
             .map((root, index) => (
               <Action
-                key={root.path}
+                key={`${project.id}:${root.path}`}
                 title={getProjectRootTitle(project, root.path, index)}
                 icon={
                   root.path === folderContext ? Icon.CheckCircle : Icon.Folder

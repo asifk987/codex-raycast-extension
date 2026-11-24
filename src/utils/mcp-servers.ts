@@ -564,6 +564,10 @@ function redactArguments(args: unknown[]): unknown[] {
     if ((previous === "-e" || previous === "--env") && separator > 0) {
       return `${arg.slice(0, separator + 1)}${redactedValue}`;
     }
+    const inlineEnv = /^((?:-e|--env)=[^=]+=).+/.exec(arg);
+    if (inlineEnv) {
+      return `${inlineEnv[1]}${redactedValue}`;
+    }
     const assignment = /^(-{0,2}[\w.-]+\s*[=:]\s*)(\S.*)$/.exec(arg);
     if (!assignment || urlSchemePattern.test(arg)) {
       return redactUrl(arg);
@@ -596,9 +600,9 @@ function redactUrl(value: string): string {
     return value;
   }
 
-  const query = Array.from(
-    url.searchParams.keys(),
-    (name) => `${name}=${redactedValue}`,
+  // A bare segment such as `?opaque-token` is the secret itself.
+  const query = Array.from(url.searchParams, ([name, value]) =>
+    value ? `${name}=${redactedValue}` : redactedValue,
   ).join("&");
   return [
     `${url.protocol}//`,

@@ -45,7 +45,7 @@
     },
     {
       "name": "manage-projects",
-      "title": "Codex Projects",
+      "title": "Search Projects",
       "subtitle": "Codex",
       "description": "Browse Codex Projects, folders, and assigned threads.",
       "mode": "view",

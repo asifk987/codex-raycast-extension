@@ -15,12 +15,12 @@ Inspect the MCP servers Codex knows about, their sign-in state, where each one i
 - Show Configuration hides recognized secrets, including credentials in server URLs and command arguments. The command never runs MCP tools or MCP server processes.
 - Uninstall deletes only the selected Codex configuration entry. The server's software and any OAuth access stay in place.
 
-### Codex Projects
+### Search Projects
 
 Browse the projects configured in the Codex desktop app, including their pinned order, primary and attached folders, and the threads assigned to them.
 
-- **Open in Desktop** (⌘↵) opens a new composer with the saved project selected, keeping the desktop app's current mode.
-- **New Thread in Project** (⌘N) opens a blank composer in the selected project from the project list or its thread list, including empty projects.
+- **Open in Codex** (⌘↵) opens a new composer with the saved project selected, keeping the desktop app's current mode.
+- **New Thread** (⌘N) asks for an optional prompt, then opens a composer in the selected project with it filled in, from the project list or its thread list, including empty projects.
 - Open an assigned thread in Codex.
 - Reveal available project folders in Finder or copy their paths.
 - Inspect project folder and activity details.
