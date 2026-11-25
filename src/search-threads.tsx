@@ -32,7 +32,7 @@ import {
   type CodexThreadLatestMessages,
   type CodexThreadSearchHit,
   type CodexSharedSession,
-  type CodexThreadSearchOccurrence,
+  type CodexThreadOccurrences,
   createCodexSharedSession,
   deleteThread,
   forkThread,
@@ -120,6 +120,8 @@ type ThreadResultSection = {
 const autoRenameBatchSizes = [5, 10, 25, 50] as const;
 const latestTurnPreviewMaxLength = 1500;
 const panelMatchLimit = 3;
+// The detail panel reads up to 200 matches; Show Matches reads them all.
+const panelOccurrenceMaxPages = 4;
 const allProjectsFilterValue = "__all_projects__";
 const emptyThreads: CodexThread[] = [];
 const emptyThreadIds: string[] = [];
@@ -424,12 +426,13 @@ export default function CodexThreadsCommand() {
       return {
         threadId,
         term,
-        occurrences: await searchThreadOccurrences(
+        ...(await searchThreadOccurrences(
           threadId,
           term,
           signal,
           sharedSession,
-        ),
+          panelOccurrenceMaxPages,
+        )),
       };
     },
     [effectiveSelectedThreadId ?? "", trimmedSearchText],
@@ -544,7 +547,7 @@ export default function CodexThreadsCommand() {
             const selectedMatches =
               selectedThreadMatches?.threadId === thread.id &&
               selectedThreadMatches.term === trimmedSearchText
-                ? selectedThreadMatches.occurrences
+                ? selectedThreadMatches
                 : undefined;
 
             const displayTitle = getThreadDisplayTitle(thread);
@@ -1696,20 +1699,21 @@ function buildThreadDetail(
   thread: CodexThread,
   childCounts: DirectChildCounts,
   match: CodexThreadSearchMatch | null,
-  matches: CodexThreadSearchOccurrence[] | undefined,
+  matches: CodexThreadOccurrences | undefined,
   latestMessages?: CodexThreadLatestMessages,
   isLatestMessagesLoading = false,
   latestMessagesError?: Error,
 ) {
   const sourceDescriptor = getCodexSourceDescriptor(thread.source);
   const agentLabel = getThreadAgentLabel(thread);
+  const branch = thread.gitInfo?.branch?.trim();
   const latestTurnsMarkdown = getLatestTurnsMarkdown(
     latestMessages,
     isLatestMessagesLoading,
     latestMessagesError,
   );
   // Without matches in visible messages, the search excerpt still explains the hit.
-  const searchMatchMarkdown = matches?.length
+  const searchMatchMarkdown = matches?.occurrences.length
     ? buildPanelMatchesMarkdown(matches)
     : match?.snippet
       ? `### Search Match\n\n> ${match.snippet}`
@@ -1741,6 +1745,20 @@ function buildThreadDetail(
             target={pathToFileURL(thread.cwd).href}
             text={tildeifyPath(thread.cwd)}
           />
+          {branch ? (
+            <List.Item.Detail.Metadata.TagList title="Branch">
+              <List.Item.Detail.Metadata.TagList.Item
+                text={branch}
+                onAction={async () => {
+                  await Clipboard.copy(branch);
+                  await showToast({
+                    style: Toast.Style.Success,
+                    title: "Copied branch name",
+                  });
+                }}
+              />
+            </List.Item.Detail.Metadata.TagList>
+          ) : null}
           {thread.model ||
           Object.values(childCounts).some((count) => count > 0) ? (
             <List.Item.Detail.Metadata.TagList title="Model & Threads">
@@ -1791,15 +1809,17 @@ function buildThreadDetail(
   );
 }
 
-function buildPanelMatchesMarkdown(
-  matches: CodexThreadSearchOccurrence[],
-): string {
-  const remaining = matches.length - panelMatchLimit;
+function buildPanelMatchesMarkdown({
+  occurrences,
+  hasMore,
+}: CodexThreadOccurrences): string {
+  const plus = hasMore ? "+" : "";
+  const remaining = occurrences.length - panelMatchLimit;
   return [
-    `### ${matches.length} ${matches.length === 1 ? "match" : "matches"} in messages`,
-    ...matches.slice(0, panelMatchLimit).map(buildMatchMarkdown),
+    `### ${occurrences.length}${plus} ${occurrences.length === 1 && !hasMore ? "match" : "matches"} in messages`,
+    ...occurrences.slice(0, panelMatchLimit).map(buildMatchMarkdown),
     remaining > 0
-      ? `${remaining} more ${remaining === 1 ? "match" : "matches"}. Press ⌘⇧M to see all.`
+      ? `${remaining}${plus} more ${remaining === 1 && !hasMore ? "match" : "matches"}. Press ⌘⇧M to see all.`
       : null,
   ]
     .filter(Boolean)

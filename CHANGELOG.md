@@ -2,6 +2,12 @@
 
 ## [Streaming Search, Search Projects, and Bug Fixes] - {PR_MERGE_DATE}
 
+- Added Delete Thread, which permanently deletes a thread after you confirm
+- Added Show Matches, which lists every place a transcript search term appears in a thread's messages and opens that part of the conversation
+- Thread details show the Git branch, and clicking it copies the name
+- Search Projects shows each project's folder, and each thread's folder in projects with more than one folder
+- Usage Stats lists each rate limit reset credit with its own expiry date
+- MCP server changes now stop if the server's configuration changed after you opened it
 - Renamed Browse Projects to Search Projects
 - In Search Projects, Open in Desktop is now Open in Codex, and New Thread takes an optional prompt
 - Renamed the New Thread Mode setting to Default Mode, with Codex, Work, and Chat options

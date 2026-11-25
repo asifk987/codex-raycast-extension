@@ -27,13 +27,13 @@ export function ThreadMatchesList({
   searchTerm: string;
 }) {
   const abortable = useRef<AbortController>(undefined);
-  const { data, isLoading } = usePromise(
+  const { data, error, isLoading, revalidate } = usePromise(
     (threadId: string, term: string) =>
       searchThreadOccurrences(threadId, term, abortable.current?.signal),
     [thread.id, searchTerm],
     { abortable, failureToastOptions: { title: "Couldn't load matches" } },
   );
-  const occurrences = data ?? [];
+  const occurrences = data?.occurrences ?? [];
   const count = occurrences.length;
 
   return (
@@ -77,11 +77,28 @@ export function ThreadMatchesList({
       </List.Section>
 
       {!isLoading && count === 0 ? (
-        <List.EmptyView
-          icon={Icon.MagnifyingGlass}
-          title="No Matches in Messages"
-          description={`"${searchTerm}" appears in this thread only outside its messages, such as in commands or tool output.`}
-        />
+        error ? (
+          <List.EmptyView
+            icon={Icon.Warning}
+            title="Couldn't Load Matches"
+            description={error.message}
+            actions={
+              <ActionPanel>
+                <Action
+                  title="Retry"
+                  icon={Icon.ArrowClockwise}
+                  onAction={revalidate}
+                />
+              </ActionPanel>
+            }
+          />
+        ) : (
+          <List.EmptyView
+            icon={Icon.MagnifyingGlass}
+            title="No Matches in Messages"
+            description={`"${searchTerm}" may be in this thread's name, folder, commands, or tool output.`}
+          />
+        )
       ) : null}
     </List>
   );

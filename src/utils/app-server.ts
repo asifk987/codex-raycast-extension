@@ -26,7 +26,6 @@ const threadPreviewPageSize = 5;
 const threadDescendantsPageSize = 50;
 const threadPreviewMaxPages = 3;
 const threadOccurrencesPageSize = 50;
-const threadOccurrencesMaxPages = 4;
 const defaultRequestTimeoutMs = 30_000;
 const sharedSessionIdleMs = 120_000;
 const threadPreviewMaxCharacters = 600;
@@ -490,6 +489,12 @@ export type CodexThreadSearchOccurrence = {
   // UTF-16 offsets into snippet, end exclusive.
   snippetMatchRange: { start: number; end: number };
   turnCursor: string;
+};
+
+export type CodexThreadOccurrences = {
+  occurrences: CodexThreadSearchOccurrence[];
+  // True when maxPages stopped the read before the last page.
+  hasMore: boolean;
 };
 
 export type CodexThreadConversationMessage = {
@@ -1316,22 +1321,28 @@ export async function searchThreadOccurrences(
   searchTerm: string,
   signal?: AbortSignal,
   shared?: CodexSharedSession,
-): Promise<CodexThreadSearchOccurrence[]> {
-  const work = async (session: CodexAppServerSession) =>
-    collectPaginatedEntries({
-      requestPage: (cursor) => {
+  maxPages = Number.POSITIVE_INFINITY,
+): Promise<CodexThreadOccurrences> {
+  const work = async (session: CodexAppServerSession) => {
+    let nextCursor = null as string | null;
+    const occurrences = await collectPaginatedEntries({
+      requestPage: async (cursor) => {
         signal?.throwIfAborted();
-        return session.request("thread/searchOccurrences", {
+        const page = await session.request("thread/searchOccurrences", {
           threadId,
           searchTerm,
           cursor,
           limit: threadOccurrencesPageSize,
         });
+        nextCursor = page.nextCursor;
+        return page;
       },
       isEntry: isThreadSearchOccurrence,
       description: "thread/searchOccurrences",
-      maxPages: threadOccurrencesMaxPages,
+      maxPages,
     });
+    return { occurrences, hasMore: nextCursor !== null };
+  };
   return shared
     ? shared.run(work, signal)
     : withCodexAppServerSession(work, signal);

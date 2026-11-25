@@ -198,6 +198,11 @@ function ProjectListItem({
     <List.Item
       id={project.id}
       title={{ value: project.name, tooltip: project.name }}
+      subtitle={
+        isShowingDetail || !primaryRoot
+          ? undefined
+          : { value: tildeifyPath(primaryRoot.path), tooltip: primaryRoot.path }
+      }
       icon={
         primaryRoot?.isAvailable ? { fileIcon: primaryRoot.path } : Icon.Folder
       }
@@ -518,6 +523,7 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
               key={thread.id}
               thread={thread}
               projectId={project.id}
+              showFolder={project.roots.length > 1}
               onRefresh={refreshThreads}
             />
           ))}
@@ -558,10 +564,12 @@ function ProjectThreads({ project }: { project: CodexDesktopProject }) {
 function ProjectThreadItem({
   thread,
   projectId,
+  showFolder,
   onRefresh,
 }: {
   thread: CodexThread;
   projectId: string;
+  showFolder: boolean;
   onRefresh: () => Promise<void>;
 }) {
   const displayTitle = getThreadDisplayTitle(thread);
@@ -570,7 +578,11 @@ function ProjectThreadItem({
     <List.Item
       id={thread.id}
       title={{ value: displayTitle, tooltip: displayTitle }}
-      subtitle={getBranchSubtitle(thread)}
+      subtitle={
+        showFolder
+          ? { value: tildeifyPath(thread.cwd), tooltip: thread.cwd }
+          : getBranchSubtitle(thread)
+      }
       icon={getThreadIconAccessory(thread)}
       keywords={[thread.id, thread.cwd, thread.gitInfo?.branch ?? ""]}
       accessories={[

@@ -40,7 +40,7 @@ View your Codex rate limits and token usage.
 Browse active and archived Codex threads. Search recent names, working directories, and previews immediately; queries of at least three characters search your full transcript history.
 
 - Threads waiting on your approval or input are grouped at the top.
-- Each thread shows its working directory, git branch and commit, status, model and reasoning effort, and subagent count.
+- Each thread shows its working directory, git branch, status, model and reasoning effort, and subagent count.
 - **Resume** in the Codex app, or in your terminal with the `codex resume` command. Resume in Terminal opens the app set in the **Terminal App** preference.
 - **Browse Child Threads** to see what a thread started: subagents, scheduled automations, and the review, compaction, memory, and Guardian threads Codex runs on its own.
 - **Summarize** a thread, then copy or paste the result, or **auto-rename** it with Raycast AI. You can also rename the last 5 to 50 threads in one pass.

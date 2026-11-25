@@ -7,7 +7,7 @@ export default async function Command() {
   try {
     selectedText = (await getSelectedText()).trim();
   } catch (error) {
-    await showFailureToast(error, { title: "Failed" });
+    await showFailureToast(error, { title: "Couldn't read selected text" });
     return;
   }
 
